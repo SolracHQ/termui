@@ -4,9 +4,8 @@ A simple DSL-based, widget-oriented TUI library for Nim. Think of it as somethin
 
 ## Status
 
-This is a work in progress. The library is already capable of basic layouts and rendering, but several features are still missing:
+This is a work in progress. The library is already capable of basic layouts, rendering, and event handling, but several features are still missing:
 
-- Event handling system
 - Focus management
 - Additional widgets (lists, dialogs, stack panels, etc.)
 
@@ -30,42 +29,74 @@ Here's a simple example showing labels and text boxes:
 
 ```nim
 import termui
-import illwill
-import std/os
-
 import widgets
 import layout
 
-proc exitProc() {.noconv.} =
-  illwillDeinit()
-  showCursor()
-  quit(0)
-
 proc main() =
-  illwillInit(fullscreen = true)
-  setControlCHook(exitProc)
-  hideCursor()
-
   tui:
     with newLabel("Hello, World!", style = {styleBright}, fgColor = fgGreen)
-
+    
     with newLabel(
       "This text will be truncated with ellipsis",
       width = fixed(20),
       overflowStrategy = osEllipsis,
       fgColor = fgYellow,
     )
-
-  var key = getKey()
-  while key != Key.Escape and key != Key.Q:
-    sleep(20)
-    key = getKey()
-
-  exitProc()
+    
+    onEvent e:
+      if e.kind == evKey and (e.key == Key.Escape or e.key == Key.Q):
+        quit()
 
 when isMainModule:
   main()
 ```
+
+The `tui` macro handles all the boilerplate: illwill initialization, event loop, terminal cleanup, and Ctrl+C handling. You just write your UI declaratively.
+
+## Event Handling
+
+The library includes a built-in event system. You can handle events at any level of the widget tree using `onEvent`:
+
+```nim
+tui:
+  with newLabel("Click me!"):
+    onEvent e:
+      if e.kind == evMouse and e.mouse.action == mbaPressed:
+        # Handle click
+        return true  # Event consumed
+  
+  # Top-level event handler
+  onEvent e:
+    if e.kind == evKey and e.key == Key.Escape:
+      quit()
+```
+
+Events bubble up from child widgets to parents. Return `true` from an event handler to stop propagation.
+
+Available event types:
+- `evKey` - Keyboard input
+- `evMouse` - Mouse events
+- `evResize` - Terminal resize
+- `evUpdate` - Frame update (for animations)
+
+## Lifecycle Hooks
+
+You can use `onInit` and `onQuit` blocks for setup and cleanup:
+
+```nim
+tui:
+  onInit:
+    # Runs once before the event loop starts
+    echo "Starting app..."
+  
+  with newLabel("My App")
+  
+  onQuit:
+    # Runs after the event loop exits normally
+    echo "Cleaning up..."
+```
+
+Note: `onInit` and `onQuit` only work at the top level of the `tui` block, not inside widget definitions.
 
 ## Available Widgets
 

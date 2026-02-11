@@ -2,6 +2,13 @@ import std/macros
 import illwill
 import ../layout
 import ../debug/boxes
+import ../core/event
+import std/hashes
+import std/os
+
+export illwill
+export os
+export event
 
 # Helper predicates
 proc isWithCommand(n: NimNode): bool =
@@ -9,6 +16,18 @@ proc isWithCommand(n: NimNode): bool =
 
 proc isAsInfix(n: NimNode): bool =
   n.kind == nnkInfix and n.len > 0 and $n[0] == "as"
+
+proc isOnEventCommand(n: NimNode): bool =
+  (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 3 and n[0].kind == nnkIdent and
+    $n[0] == "onEvent"
+
+proc isOnInitCommand(n: NimNode): bool =
+  (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 2 and n[0].kind == nnkIdent and
+    $n[0] == "onInit"
+
+proc isOnQuitCommand(n: NimNode): bool =
+  (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 2 and n[0].kind == nnkIdent and
+    $n[0] == "onQuit"
 
 proc hasNestedWithCommands(body: NimNode): bool =
   for child in body:
@@ -39,6 +58,11 @@ proc parseWithClause(
     result.userSym = ident("self")
     result.sym = genSym(nskLet, "self")
 
+proc parseOnEventCommand(stmt: NimNode): tuple[param: NimNode, body: NimNode] =
+  ## Parse onEvent command - works for both onEvent(e): and onEvent e:
+  result.param = stmt[1]
+  result.body = stmt[2]
+
 proc addWidgetTypeCheck(result: var NimNode, widgetSym, widgetExpr: NimNode) =
   ## Add a compile-time check to ensure the expression is a Widget
   let exprStr = widgetExpr.repr
@@ -59,16 +83,38 @@ proc addWidgetToParent(result: var NimNode, parentSym, widgetSym: NimNode) =
   result.add quote do:
     `parentSym`.children.add(`widgetSym`)
 
+proc processOnEventCommand(stmt: NimNode, widgetSym: NimNode): NimNode =
+  ## Process onEvent command and attach handler to widget
+  let (param, body) = parseOnEventCommand(stmt)
+
+  result = quote:
+    `widgetSym`.handler = proc(`param`: Event): bool =
+      `body`
+      return false
+
 proc processNode(n: NimNode, parentSym: NimNode): NimNode =
   result = newStmtList()
 
   for stmt in n:
+    # Handle onEvent at current level (attaches to parent)
+    if stmt.isOnEventCommand():
+      result.add processOnEventCommand(stmt, parentSym)
+      continue
+
+    # Handle onInit/onQuit - error if not at top level
+    if stmt.isOnInitCommand() or stmt.isOnQuitCommand():
+      error("onInit and onQuit are only allowed at the top level of tui block", stmt)
+      continue
+
+    # Handle regular statements
     if not stmt.isWithCommand():
       result.add stmt
       continue
 
+    # Handle with commands
     let (widgetExpr, widgetSym, body, userSym) = parseWithClause(stmt)
     let hasChildren = body.hasNestedWithCommands()
+    let randomValue = widgetSym.repr
 
     # Wrap each node in a block to create a new scope for `self`
     var blockContent = newStmtList()
@@ -76,6 +122,7 @@ proc processNode(n: NimNode, parentSym: NimNode): NimNode =
     # Create widget with internal symbol
     blockContent.add quote do:
       let `widgetSym` = `widgetExpr`
+      `widgetSym`.randomValue = `randomValue`
 
     # Create user-visible symbol (self or custom name)
     blockContent.add newLetStmt(userSym, widgetSym)
@@ -92,17 +139,46 @@ proc processNode(n: NimNode, parentSym: NimNode): NimNode =
     else:
       # Process body statements with userSym in scope
       for child in body:
-        blockContent.add child
+        if child.isOnEventCommand():
+          blockContent.add processOnEventCommand(child, widgetSym)
+        elif child.isOnInitCommand() or child.isOnQuitCommand():
+          error(
+            "onInit and onQuit are only allowed at the top level of tui block", child
+          )
+        else:
+          blockContent.add child
 
     # Wrap in block
     result.add newBlockStmt(blockContent)
 
 proc generateTuiCode(body: NimNode, debug: bool): NimNode =
+  # Extract top-level onInit/onQuit blocks
+  var onInitBody = newStmtList()
+  var onQuitBody = newStmtList()
+  var treeBody = newStmtList()
+  var hasOnInit = false
+  var hasOnQuit = false
+
+  for stmt in body:
+    if stmt.isOnInitCommand():
+      if hasOnInit:
+        error("tui block can only have one onInit block", stmt)
+      hasOnInit = true
+      onInitBody = stmt[1]
+    elif stmt.isOnQuitCommand():
+      if hasOnQuit:
+        error("tui block can only have one onQuit block", stmt)
+      hasOnQuit = true
+      onQuitBody = stmt[1]
+    else:
+      treeBody.add stmt
+
   let rootSym = genSym(nskVar, "root")
-  let treeCode = processNode(body, rootSym)
+  let runningSym = genSym(nskVar, "running")
+  let quitProc = ident("quit")
   let selfSym = ident("self")
+  let treeCode = processNode(treeBody, rootSym)
   let ctxSym = genSym(nskVar, "ctx")
-  let tbSym = genSym(nskVar, "tb")
 
   let renderCall =
     if debug:
@@ -110,24 +186,87 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
     else:
       newCall(newDotExpr(rootSym, ident("render")), ctxSym)
 
+  let setupCode = quote:
+    # Setup illwill
+    proc exitProc() {.noconv.} =
+      illwillDeinit()
+      showCursor()
+      quit(0)
+
+    illwillInit(fullscreen = true, mouse = true)
+    setControlCHook(exitProc)
+    hideCursor()
+
+  let cleanupCode = quote:
+    illwillDeinit()
+    showCursor()
+
   result = quote:
     block:
-      var `rootSym` = newVBox(width = fill(), height = fill())
-      let `selfSym` = `rootSym`
-      `treeCode`
+      `setupCode`
 
-      var `tbSym` = newTerminalBuffer(terminalWidth(), terminalHeight())
-      let terminalRect = Rect(
-        pos: Position(x: 0, y: 0),
-        size: Size(width: terminalWidth(), height: terminalHeight()),
-      )
+      # onInit runs once
+      `onInitBody`
 
-      discard `rootSym`.measure(terminalRect.size)
-      discard `rootSym`.arrange(terminalRect)
+      var `runningSym` = true
+      var prevHash: Hash
+      var prevWidth = terminalWidth()
+      var prevHeight = terminalHeight()
 
-      var `ctxSym` = RenderContext(tb: `tbSym`, clipRect: terminalRect)
-      `renderCall`
-      `tbSym`.display()
+      # Inject quit proc into scope
+      proc `quitProc`() =
+        `runningSym` = false
+
+      while `runningSym`:
+        # Poll event
+        var event: Event
+        let key = getKey()
+
+        case key
+        of Key.None:
+          let (w, h) = (terminalWidth(), terminalHeight())
+          if w != prevWidth or h != prevHeight:
+            event = Event(kind: evResize, newWidth: w, newHeight: h)
+            prevWidth = w
+            prevHeight = h
+          else:
+            event = Event(kind: evUpdate, delta: 0.016) # TODO: calculate real delta
+        of Key.Mouse:
+          event = Event(kind: evMouse, mouse: getMouse())
+        else:
+          event = Event(kind: evKey, key: key)
+
+        # Rebuild tree every frame
+        var `rootSym` = newVBox(width = fill(), height = fill())
+        let `selfSym` = `rootSym`
+        `treeCode`
+
+        # Dispatch event through tree
+        discard `rootSym`.onEvent(event)
+
+        # Hash and conditional render
+        let currentHash = hash(`rootSym`)
+        if currentHash != prevHash or event.kind == evResize:
+          var tb = newTerminalBuffer(terminalWidth(), terminalHeight())
+          let terminalRect = Rect(
+            pos: Position(x: 0, y: 0),
+            size: Size(width: terminalWidth(), height: terminalHeight()),
+          )
+
+          discard `rootSym`.measure(terminalRect.size)
+          discard `rootSym`.arrange(terminalRect)
+
+          var `ctxSym` = RenderContext(tb: tb, clipRect: terminalRect)
+          `renderCall`
+          tb.display()
+
+          prevHash = currentHash
+
+        sleep(16)
+
+      # onQuit runs after loop exits
+      `onQuitBody`
+      `cleanupCode`
 
 macro tui*(body: untyped): untyped =
   generateTuiCode(body, false)

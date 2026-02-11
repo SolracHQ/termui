@@ -1,20 +1,8 @@
 import termui
-import illwill
-import std/os
-
 import widgets
 import layout
 
-proc exitProc() {.noconv.} =
-  illwillDeinit()
-  showCursor()
-  quit(0)
-
 proc main() =
-  illwillInit(fullscreen = true)
-  setControlCHook(exitProc)
-  hideCursor()
-
   tuiDebug:
     self.alignment = alCenter
 
@@ -35,12 +23,9 @@ proc main() =
 
     with newLabel("Colored boxes show widget boundaries and sizes")
 
-  var key = getKey()
-  while key != Key.Escape and key != Key.Q:
-    sleep(20)
-    key = getKey()
-
-  exitProc()
+    onEvent e:
+      if e.kind == evKey and (e.key == Key.Escape or e.key == Key.Q):
+        quit()
 
 when isMainModule:
   main()

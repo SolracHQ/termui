@@ -1,26 +1,12 @@
 import termui
-import illwill
-import std/os
-
 import widgets
 import layout
 
-proc exitProc() {.noconv.} =
-  illwillDeinit()
-  showCursor()
-  quit(0)
-
 proc main() =
-  illwillInit(fullscreen = true)
-  setControlCHook(exitProc)
-  hideCursor()
-
-  var root: Container
-
   tui:
     self.spacing = 1
     self.alignment = alCenter
-    root = self
+
     with newLabel(
       "Label, TextBox & HBox Demo - Press ESC or Q to exit", style = {styleBright}
     )
@@ -58,12 +44,9 @@ proc main() =
       fgColor = fgCyan,
     )
 
-  var key = getKey()
-  while key != Key.Escape and key != Key.Q:
-    sleep(20)
-    key = getKey()
-
-  exitProc()
+    onEvent e:
+      if e.kind == evKey and (e.key == Key.Escape or e.key == Key.Q):
+        quit()
 
 when isMainModule:
   main()

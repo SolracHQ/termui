@@ -1,4 +1,5 @@
 import primitives, constraints, context, event
+import hashes
 
 type
   Widget* = ref object of RootObj
@@ -6,6 +7,7 @@ type
     constraints*: WidgetConstraints
     calculatedRect*: Rect
     handler*: EventHandler
+    randomValue*: string
 
   Container* = ref object of Widget
     ## A container widget that can hold child widgets and manage their layout.
@@ -37,12 +39,25 @@ method render*(w: Widget, ctx: var RenderContext) {.base.} =
 
 method onEvent*(w: Widget, e: Event): bool {.base.} =
   ## Handle an event, returning true if the event was handled.
-  raise newException(CatchableError, "onEvent not implemented for " & $w.type)
+  result = false
 
-method onResize*(w: Container, e: Event): bool =
+method onEvent*(w: Container, e: Event): bool =
   if w.handler.isNil or w.handler(e):
     return true
   for child in w.children:
-    if child.onResize(e):
+    if (e.kind == evMouse) and
+        (not child.calculatedRect.contains(Position(x: e.mouse.x, y: e.mouse.y))):
+      continue
+    if child.onEvent(e):
       return true
   return false
+
+method hash*(w: Widget): Hash {.base.} =
+  ## Compute a hash for the widget, based on its type and properties.
+  result = hash(w.randomValue)
+
+method hash*(c: Container): Hash =
+  ## Compute a hash for the container, including its children.
+  result = hash(c.randomValue)
+  for child in c.children:
+    result = result !& child.hash()
