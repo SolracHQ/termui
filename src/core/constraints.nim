@@ -1,30 +1,52 @@
 ## Core constraint types for termui layout engine.
 ##
-## This module contains ONLY base types and method signatures.
-## Concrete implementations are in layout/ modules.
+## This module defines size specifications and bounds using case objects
+## instead of inheritance for better performance and simpler code.
 
 type
   FlexFactor* = range[1 .. high(int)] ## Flex factor must be positive
   PercentValue* = range[0.0 .. 1.0] ## Percentage as a value between 0.0 and 1.0
 
-  # Base types using inheritance
-  SizeBound* = ref object of RootObj ## Base type for size bounds (min/max constraints)
+  SizeBoundKind* = enum
+    sbUnbounded
+    sbBounded
 
-  SizeSpec* = ref object of RootObj ## Base type for size specifications
+  SizeBound* = object
+    case kind*: SizeBoundKind
+    of sbUnbounded:
+      discard
+    of sbBounded:
+      value*: int
+
+  SizeSpecKind* = enum
+    ssFixed
+    ssContent
+    ssFill
+    ssFlex
+    ssPercent
+
+  SizeSpec* = object
+    case kind*: SizeSpecKind
+    of ssFixed:
+      size*: int
+    of ssContent:
+      contentMinBound*: SizeBound
+      contentMaxBound*: SizeBound
+    of ssFill:
+      fillMinBound*: SizeBound
+      fillMaxBound*: SizeBound
+    of ssFlex:
+      factor*: FlexFactor
+      flexMinBound*: SizeBound
+      flexMaxBound*: SizeBound
+    of ssPercent:
+      percent*: PercentValue
+      percentMinBound*: SizeBound
+      percentMaxBound*: SizeBound
 
   WidgetConstraints* = object ## Combined width and height specifications
     width*: SizeSpec
     height*: SizeSpec
-
-  LayoutAxis* = enum
-    ## Direction of layout
-    laHorizontal
-    laVertical
-
-  LayoutMode* = enum
-    ## How children are arranged
-    lmStack ## Overlapping (z-order)
-    lmBox ## Sequential along axis
 
   Alignment* = enum
     ## Alignment within available space
@@ -33,32 +55,56 @@ type
     alEnd
     alStretch
 
-# Base methods for SizeBound
+# SizeBound operations
 
-method applyBound*(bound: SizeBound, value: int): int {.base.} =
+proc applyBound*(bound: SizeBound, value: int): int =
   ## Apply a maximum bound constraint to a value
-  raise newException(CatchableError, "applyBound not implemented for " & $bound.type)
+  case bound.kind
+  of sbUnbounded:
+    value
+  of sbBounded:
+    min(value, bound.value)
 
-method applyMinBound*(bound: SizeBound, value: int): int {.base.} =
+proc applyMinBound*(bound: SizeBound, value: int): int =
   ## Apply a minimum bound constraint to a value
-  raise newException(CatchableError, "applyMinBound not implemented for " & $bound.type)
+  case bound.kind
+  of sbUnbounded:
+    value
+  of sbBounded:
+    max(value, bound.value)
 
-# Base methods for SizeSpec resolution
+# SizeSpec operations
 
-method resolve*(spec: SizeSpec, available: int, contentSize: int): int {.base.} =
+proc resolve*(spec: SizeSpec, available: int, contentSize: int): int =
   ## Resolve a size spec to an actual size given available space and content size
-  raise newException(CatchableError, "resolve not implemented for " & $spec.type)
+  case spec.kind
+  of ssFixed:
+    result = spec.size
+  of ssContent:
+    result = contentSize
+    result = spec.contentMinBound.applyMinBound(result)
+    result = spec.contentMaxBound.applyBound(result)
+  of ssFill:
+    result = available
+    result = spec.fillMinBound.applyMinBound(result)
+    result = spec.fillMaxBound.applyBound(result)
+  of ssFlex:
+    result = 0 # Placeholder, actual resolution happens in resolveFlex
+  of ssPercent:
+    result = int(float(available) * spec.percent)
+    result = spec.percentMinBound.applyMinBound(result)
+    result = spec.percentMaxBound.applyBound(result)
 
-method isFlex*(spec: SizeSpec): bool {.base.} =
+proc isFlex*(spec: SizeSpec): bool =
   ## Check if this is a flex size spec
-  false
+  spec.kind == ssFlex
 
-method getFlexFactor*(spec: SizeSpec): FlexFactor {.base.} =
+proc getFlexFactor*(spec: SizeSpec): FlexFactor =
   ## Get the flex factor (only valid for FlexSize)
-  raise newException(CatchableError, "getFlexFactor not implemented for " & $spec.type)
+  spec.factor
 
-method resolveFlex*(
-    spec: SizeSpec, flexSpace: int, totalFlexFactor: int
-): int {.base.} =
+proc resolveFlex*(spec: SizeSpec, flexSpace: int, totalFlexFactor: int): int =
   ## Resolve flex size given the available flex space and total flex factor
-  raise newException(CatchableError, "resolveFlex not implemented for " & $spec.type)
+  result = (flexSpace * spec.factor) div totalFlexFactor
+  result = spec.flexMinBound.applyMinBound(result)
+  result = spec.flexMaxBound.applyBound(result)

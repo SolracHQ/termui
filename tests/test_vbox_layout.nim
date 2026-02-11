@@ -1,7 +1,8 @@
 import unittest
 import core/[widget, primitives, constraints]
-import widgets/[vbox, label]
-import layout/size_specs
+import widgets
+import containers
+import layout
 
 suite "VBox Layout Tests":
   test "VBox with fixed height children":

@@ -1,7 +1,7 @@
 import unittest
 import core/[widget, primitives, constraints]
-import widgets/rect
-import layout/size_specs
+import widgets
+import layout
 
 suite "Rect Layout Tests":
   test "Rect measure with content size":

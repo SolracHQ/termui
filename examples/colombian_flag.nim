@@ -2,8 +2,8 @@ import termui
 import illwill
 import std/os
 
-import widgets/[label, vbox, rect, padding]
-import layout/size_specs
+import widgets
+import layout
 
 proc exitProc() {.noconv.} =
   illwillDeinit()

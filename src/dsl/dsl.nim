@@ -1,12 +1,6 @@
 import std/macros
 import illwill
-import ../widgets/hbox as widget_hbox
-import ../widgets/vbox as widget_vbox
-import ../widgets/label as widget_label
-import ../widgets/padding as widget_padding
-import ../widgets/rect as widget_rect
-import ../widgets/textbox as widget_textbox
-import ../layout/size_specs
+import ../layout
 import ../debug/boxes
 
 # Helper predicates

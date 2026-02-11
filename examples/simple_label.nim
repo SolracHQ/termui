@@ -2,8 +2,8 @@ import termui
 import illwill
 import std/os
 
-import widgets/[label, hbox, textbox]
-import layout/size_specs
+import widgets
+import layout
 
 proc exitProc() {.noconv.} =
   illwillDeinit()
@@ -15,9 +15,12 @@ proc main() =
   setControlCHook(exitProc)
   hideCursor()
 
+  var root: Container
+
   tui:
     self.spacing = 1
     self.alignment = alCenter
+    root = self
     with newLabel(
       "Label, TextBox & HBox Demo - Press ESC or Q to exit", style = {styleBright}
     )

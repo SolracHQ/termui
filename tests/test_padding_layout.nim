@@ -1,7 +1,8 @@
 import unittest
 import core/[widget, primitives, constraints]
-import widgets/[padding, label]
-import layout/size_specs
+import widgets
+import containers
+import layout
 
 suite "Padding Layout Tests":
   test "Padding with all sides equal":

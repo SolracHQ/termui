@@ -1,6 +1,6 @@
 import ../core/widget
 import ../core/[primitives, constraints, context]
-import ../layout/size_specs
+import ../layout
 
 type VBox* = ref object of Container
   ## Vertical box layout widget that arranges children in a column

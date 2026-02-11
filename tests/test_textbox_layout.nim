@@ -1,7 +1,7 @@
 import unittest
 import core/[widget, primitives, constraints]
-import widgets/textbox
-import layout/size_specs
+import widgets
+import layout
 import std/strutils
 
 suite "TextBox Layout Tests":

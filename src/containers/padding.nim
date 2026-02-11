@@ -1,6 +1,6 @@
 import ../core/widget
 import ../core/[primitives, context, constraints]
-import ../layout/size_specs
+import ../layout
 import vbox
 
 type Padding* = ref object of VBox

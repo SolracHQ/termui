@@ -1,8 +1,8 @@
 import unittest
 import std/strutils
 import core/[widget, primitives, constraints]
-import widgets/label
-import layout/size_specs
+import widgets
+import layout
 
 suite "Label Layout Tests":
   test "Label measure with content size":

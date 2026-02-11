@@ -1,6 +1,6 @@
 import ../core/widget
 import ../core/[primitives, constraints, context]
-import ../layout/size_specs
+import ../layout
 
 type HBox* = ref object of Container
   ## Horizontal box layout widget that arranges children in a row

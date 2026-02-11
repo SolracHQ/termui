@@ -1,24 +1,16 @@
-import widgets/label
-import widgets/hbox
-import widgets/vbox
-import widgets/textbox
-import widgets/rect
-import widgets/padding
+import containers
+import widgets
 import core/[widget, primitives, constraints, context]
-import layout/size_specs
+import layout
 import dsl/dsl
 import debug/boxes
 
-export label
-export hbox
-export vbox
-export textbox
-export rect
-export padding
+export widgets
+export containers
 export widget
 export primitives
 export constraints
 export context
-export size_specs
+export layout
 export dsl
 export boxes

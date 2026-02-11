@@ -1,6 +1,6 @@
 import ../core/widget
 import ../core/[primitives, context, constraints]
-import ../layout/size_specs
+import ../layout
 from std/terminal import Style
 import illwill
 

@@ -1,7 +1,8 @@
 import unittest
 import core/[widget, primitives, constraints]
-import widgets/[hbox, label]
-import layout/size_specs
+import widgets
+import containers
+import layout
 
 suite "HBox Layout Tests":
   test "HBox with fixed width children":

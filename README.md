@@ -33,8 +33,8 @@ import termui
 import illwill
 import std/os
 
-import widgets/label
-import layout/size_specs
+import widgets
+import layout
 
 proc exitProc() {.noconv.} =
   illwillDeinit()
