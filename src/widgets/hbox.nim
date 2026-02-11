@@ -18,19 +18,6 @@ proc newHBox*(
   result.constraints.width = width
   result.constraints.height = height
 
-proc config*(
-    hbox: var HBox,
-    width: SizeSpec,
-    height: SizeSpec,
-    alignment: Alignment,
-    spacing: int,
-) =
-  ## Configure an existing HBox
-  hbox.constraints.width = width
-  hbox.constraints.height = height
-  hbox.alignment = alignment
-  hbox.spacing = spacing
-
 method measure*(hbox: HBox, available: Size): MeasureResult =
   ## Measure the HBox by measuring all children
   var totalMinWidth = 0
@@ -42,10 +29,28 @@ method measure*(hbox: HBox, available: Size): MeasureResult =
 
   for child in hbox.children:
     let childMeasure = child.measure(available)
+
+    # For width: resolve the child's constraint to get its actual desired width
+    # If it's flex, we can't know yet (need remaining space), so use preferred
+    let childWidth =
+      if child.constraints.width.isFlex():
+        childMeasure.preferred.width # Flex size determined during arrange
+      else:
+        child.constraints.width.resolve(available.width, childMeasure.preferred.width)
+
+    # For height: resolve the child's constraint
+    let childHeight =
+      if child.constraints.height.isFlex():
+        childMeasure.preferred.height
+      else:
+        child.constraints.height.resolve(
+          available.height, childMeasure.preferred.height
+        )
+
     totalMinWidth += childMeasure.min.width
-    totalPrefWidth += childMeasure.preferred.width
+    totalPrefWidth += childWidth
     maxMinHeight = max(maxMinHeight, childMeasure.min.height)
-    maxPrefHeight = max(maxPrefHeight, childMeasure.preferred.height)
+    maxPrefHeight = max(maxPrefHeight, childHeight)
 
   result.min = Size(width: totalMinWidth + totalSpacing, height: maxMinHeight)
   result.preferred = Size(width: totalPrefWidth + totalSpacing, height: maxPrefHeight)

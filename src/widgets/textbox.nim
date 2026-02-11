@@ -34,21 +34,6 @@ proc newTextBox*(
   result.constraints.width = width
   result.constraints.height = height
 
-proc config*(
-    textbox: var TextBox,
-    width: SizeSpec,
-    height: SizeSpec,
-    style: set[Style],
-    fgColor: ForegroundColor,
-    bgColor: BackgroundColor,
-) =
-  ## Configure an existing TextBox instance
-  textbox.constraints.width = width
-  textbox.constraints.height = height
-  textbox.style = style
-  textbox.fgColor = fgColor
-  textbox.bgColor = bgColor
-
 proc maxLineLength(lines: seq[string]): int =
   result = 0
   for line in lines:

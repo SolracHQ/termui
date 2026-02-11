@@ -24,11 +24,11 @@ type
 proc newLabel*(
     text: string,
     width: SizeSpec = content(),
-    height: SizeSpec = content(),
+    height: SizeSpec = fixed(1),
     overflowStrategy: OverflowStrategy = osClip,
     style: set[Style] = {},
-    fgColor: ForegroundColor = ForegroundColor.fgNone,
-    bgColor: BackgroundColor = BackgroundColor.bgNone,
+    fgColor: ForegroundColor = fgWhite,
+    bgColor: BackgroundColor = bgBlack,
 ): Label =
   if '\n' in text:
     raise newException(
@@ -45,17 +45,6 @@ proc newLabel*(
 
   result.constraints.width = width
   result.constraints.height = height
-
-proc config*(label: var Label, width: SizeSpec, height: SizeSpec,
-            overflowStrategy: OverflowStrategy, style: set[Style],
-            fgColor: ForegroundColor, bgColor: BackgroundColor) =
-  ## Configure an existing Label instance
-  label.constraints.width = width
-  label.constraints.height = height
-  label.overflowStrategy = overflowStrategy
-  label.style = style
-  label.fgColor = fgColor
-  label.bgColor = bgColor
 
 method measure*(label: Label, available: Size): MeasureResult =
   result.min = Size(width: 1, height: 1)

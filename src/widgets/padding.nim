@@ -14,10 +14,11 @@ proc newPadding*(
     children: seq[Widget] = @[],
     width: SizeSpec = content(),
     height: SizeSpec = content(),
-    left: int = 0,
-    right: int = 0,
-    top: int = 0,
-    bottom: int = 0,
+    padding: int = 0,
+    left: int = padding,
+    right: int = padding,
+    top: int = padding,
+    bottom: int = padding,
     spacing: int = 0,
     alignment: Alignment = alStart,
 ): Padding =
@@ -33,30 +34,6 @@ proc newPadding*(
   )
   result.constraints.width = width
   result.constraints.height = height
-
-proc config*(padding: var Padding, width: SizeSpec, height: SizeSpec, alignment: Alignment, spacing: int, left: int, right: int, top: int, bottom: int) =
-  ## Configure an existing Padding instance
-  padding.constraints.width = width
-  padding.constraints.height = height
-  padding.alignment = alignment
-  padding.spacing = spacing
-  padding.left = left
-  padding.right = right
-  padding.top = top
-  padding.bottom = bottom
-
-proc newPadding*(
-    children: seq[Widget] = @[],
-    width: SizeSpec = content(),
-    height: SizeSpec = content(),
-    padding: int = 0,
-    spacing: int = 0,
-    alignment: Alignment = alStart,
-): Padding =
-  ## Create a new padding widget with uniform padding on all sides
-  newPadding(
-    children, width, height, padding, padding, padding, padding, spacing, alignment
-  )
 
 method measure*(padding: Padding, available: Size): MeasureResult =
   ## Measure the padding by measuring children like VBox and adding padding space

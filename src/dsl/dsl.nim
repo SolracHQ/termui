@@ -1,3 +1,4 @@
+import std/macros
 import illwill
 import ../widgets/hbox as widget_hbox
 import ../widgets/vbox as widget_vbox
@@ -6,149 +7,138 @@ import ../widgets/padding as widget_padding
 import ../widgets/rect as widget_rect
 import ../widgets/textbox as widget_textbox
 import ../layout/size_specs
+import ../debug/boxes
 
-template tui*(tui_body: untyped) =
-  var containerStack: seq[Container] =
-    @[
-      Container(
-        widget_vbox.newVBox(width = fill(), height = fill(), spacing = 0, alignment = alStart)
+# Helper predicates
+proc isWithCommand(n: NimNode): bool =
+  n.kind == nnkCommand and n.len > 0 and n[0].kind == nnkIdent and $n[0] == "with"
+
+proc isAsInfix(n: NimNode): bool =
+  n.kind == nnkInfix and n.len > 0 and $n[0] == "as"
+
+proc hasNestedWithCommands(body: NimNode): bool =
+  for child in body:
+    if child.isWithCommand():
+      return true
+  return false
+
+proc parseWithClause(
+    stmt: NimNode
+): tuple[expr: NimNode, sym: NimNode, body: NimNode, userSym: NimNode] =
+  ## Parse with statment and return components
+  ## "with" expr ( "as" ident )? ( ":" body )?
+  let callOrInfix = stmt[1]
+  result.body =
+    if stmt.len > 2:
+      stmt[2]
+    else:
+      newStmtList()
+
+  if callOrInfix.isAsInfix():
+    # with Widget() as name
+    result.expr = callOrInfix[1]
+    result.userSym = callOrInfix[2]
+    result.sym = genSym(nskLet, $callOrInfix[2])
+  else:
+    # with Widget()
+    result.expr = callOrInfix
+    result.userSym = ident("self")
+    result.sym = genSym(nskLet, "self")
+
+proc addWidgetTypeCheck(result: var NimNode, widgetSym, widgetExpr: NimNode) =
+  ## Add a compile-time check to ensure the expression is a Widget
+  let exprStr = widgetExpr.repr
+  let errorNode = quote:
+    when not (`widgetSym` is Widget):
+      {.error: "expected a Widget but got '" & `exprStr` & "'".}
+  result.add errorNode
+
+proc addContainerTypeCheck(result: var NimNode, widgetSym, widgetExpr: NimNode) =
+  ## Add a compile-time check to ensure the widget is a Container if it has children
+  let exprStr = widgetExpr.repr
+  let errorNode = quote:
+    when not (`widgetSym` is Container):
+      {.error: "cannot add children to non-container widget '" & `exprStr` & "'".}
+  result.add errorNode
+
+proc addWidgetToParent(result: var NimNode, parentSym, widgetSym: NimNode) =
+  result.add quote do:
+    `parentSym`.children.add(`widgetSym`)
+
+proc processNode(n: NimNode, parentSym: NimNode): NimNode =
+  result = newStmtList()
+
+  for stmt in n:
+    if not stmt.isWithCommand():
+      result.add stmt
+      continue
+
+    let (widgetExpr, widgetSym, body, userSym) = parseWithClause(stmt)
+    let hasChildren = body.hasNestedWithCommands()
+
+    # Wrap each node in a block to create a new scope for `self`
+    var blockContent = newStmtList()
+
+    # Create widget with internal symbol
+    blockContent.add quote do:
+      let `widgetSym` = `widgetExpr`
+
+    # Create user-visible symbol (self or custom name)
+    blockContent.add newLetStmt(userSym, widgetSym)
+
+    # Type checks
+    addWidgetTypeCheck(blockContent, widgetSym, widgetExpr)
+
+    # Add widget to parent (using internal symbol)
+    addWidgetToParent(blockContent, parentSym, widgetSym)
+
+    if hasChildren:
+      addContainerTypeCheck(blockContent, widgetSym, widgetExpr)
+      blockContent.add processNode(body, widgetSym)
+    else:
+      # Process body statements with userSym in scope
+      for child in body:
+        blockContent.add child
+
+    # Wrap in block
+    result.add newBlockStmt(blockContent)
+
+proc generateTuiCode(body: NimNode, debug: bool): NimNode =
+  let rootSym = genSym(nskVar, "root")
+  let treeCode = processNode(body, rootSym)
+  let selfSym = ident("self")
+  let ctxSym = genSym(nskVar, "ctx")
+  let tbSym = genSym(nskVar, "tb")
+
+  let renderCall =
+    if debug:
+      newCall(ident("renderBoxes"), rootSym, ctxSym)
+    else:
+      newCall(newDotExpr(rootSym, ident("render")), ctxSym)
+
+  result = quote:
+    block:
+      var `rootSym` = newVBox(width = fill(), height = fill())
+      let `selfSym` = `rootSym`
+      `treeCode`
+
+      var `tbSym` = newTerminalBuffer(terminalWidth(), terminalHeight())
+      let terminalRect = Rect(
+        pos: Position(x: 0, y: 0),
+        size: Size(width: terminalWidth(), height: terminalHeight()),
       )
-    ]
 
-  proc config(
-      width {.inject.}: SizeSpec = containerStack[^1].constraints.width,
-      height {.inject.}: SizeSpec = containerStack[^1].constraints.height,
-      alignment {.inject.}: Alignment = containerStack[^1].alignment,
-  ) {.inject.} =
-    containerStack[^1].constraints.width = width
-    containerStack[^1].constraints.height = height
-    containerStack[^1].alignment = alignment
+      discard `rootSym`.measure(terminalRect.size)
+      discard `rootSym`.arrange(terminalRect)
 
-  template hbox(body: untyped) {.inject.} =
-    block:
-      var hboxWidget = widget_hbox.newHBox()
-      containerStack[^1].children.add hboxWidget
-      containerStack.add hboxWidget
-      defer:
-        discard containerStack.pop()
+      var `ctxSym` = RenderContext(tb: `tbSym`, clipRect: terminalRect)
+      `renderCall`
+      `tbSym`.display()
 
-      proc config(
-          width {.inject.}: SizeSpec = hboxWidget.constraints.width,
-          height {.inject.}: SizeSpec = hboxWidget.constraints.height,
-          alignment {.inject.}: Alignment = hboxWidget.alignment,
-          spacing {.inject.}: int = hboxWidget.spacing,
-      ) {.inject.} =
-        widget_hbox.config(hboxWidget, width, height, alignment, spacing)
+macro tui*(body: untyped): untyped =
+  generateTuiCode(body, false)
 
-      body
-
-  template vbox(body: untyped) {.inject.} =
-    block:
-      var vboxWidget = widget_vbox.newVBox()
-      containerStack[^1].children.add vboxWidget
-      containerStack.add vboxWidget
-      defer:
-        discard containerStack.pop()
-
-      proc config(
-          width {.inject.}: SizeSpec = vboxWidget.constraints.width,
-          height {.inject.}: SizeSpec = vboxWidget.constraints.height,
-          alignment {.inject.}: Alignment = vboxWidget.alignment,
-          spacing {.inject.}: int = vboxWidget.spacing,
-      ) {.inject.} =
-        widget_vbox.config(vboxWidget, width, height, alignment, spacing)
-
-      body
-
-  template padding(body: untyped) {.inject.} =
-    block:
-      var paddingWidget = widget_padding.newPadding(padding = 0)
-      containerStack[^1].children.add paddingWidget
-      containerStack.add paddingWidget
-      defer:
-        discard containerStack.pop()
-
-      proc config(
-          width {.inject.}: SizeSpec = paddingWidget.constraints.width,
-          height {.inject.}: SizeSpec = paddingWidget.constraints.height,
-          alignment {.inject.}: Alignment = paddingWidget.alignment,
-          spacing {.inject.}: int = paddingWidget.spacing,
-          left {.inject.}: int = paddingWidget.left,
-          right {.inject.}: int = paddingWidget.right,
-          top {.inject.}: int = paddingWidget.top,
-          bottom {.inject.}: int = paddingWidget.bottom,
-      ) {.inject.} =
-        widget_padding.config(
-          paddingWidget, width, height, alignment, spacing, left, right, top, bottom
-        )
-
-      body
-
-  template label(text: string, body: untyped) {.inject.} =
-    block:
-      var labelWidget = widget_label.newLabel(text)
-      containerStack[^1].children.add labelWidget
-
-      proc config(
-          width {.inject.}: SizeSpec = labelWidget.constraints.width,
-          height {.inject.}: SizeSpec = labelWidget.constraints.height,
-          overflowStrategy {.inject.}: OverflowStrategy = labelWidget.overflowStrategy,
-          style {.inject.}: set[Style] = labelWidget.style,
-          fgColor {.inject.}: ForegroundColor = labelWidget.fgColor,
-          bgColor {.inject.}: BackgroundColor = labelWidget.bgColor,
-      ) {.inject.} =
-        widget_label.config(
-          labelWidget, width, height, overflowStrategy, style, fgColor, bgColor
-        )
-
-      body
-
-  template rect(body: untyped) {.inject.} =
-    block:
-      var rectWidget = widget_rect.newRect()
-      containerStack[^1].children.add rectWidget
-
-      proc config(
-          width {.inject.}: SizeSpec = rectWidget.constraints.width,
-          height {.inject.}: SizeSpec = rectWidget.constraints.height,
-          bgColor {.inject.}: BackgroundColor = rectWidget.bgColor,
-          fgColor {.inject.}: ForegroundColor = rectWidget.fgColor,
-          fillChar {.inject.}: char = rectWidget.fillChar,
-      ) {.inject.} =
-        widget_rect.config(rectWidget, width, height, bgColor, fgColor, fillChar)
-
-      body
-
-  template textbox(lines: seq[string], body: untyped) {.inject.} =
-    block:
-      var textboxWidget = widget_textbox.newTextBox(lines)
-      containerStack[^1].children.add textboxWidget
-
-      proc config(
-          width {.inject.}: SizeSpec = textboxWidget.constraints.width,
-          height {.inject.}: SizeSpec = textboxWidget.constraints.height,
-          style {.inject.}: set[Style] = textboxWidget.style,
-          fgColor {.inject.}: ForegroundColor = textboxWidget.fgColor,
-          bgColor {.inject.}: BackgroundColor = textboxWidget.bgColor,
-      ) {.inject.} =
-        widget_textbox.config(textboxWidget, width, height, style, fgColor, bgColor)
-
-      body
-
-  tui_body
-
-  let root = containerStack[0]
-  var tb = newTerminalBuffer(terminalWidth(), terminalHeight())
-
-  let terminalRect = Rect(
-    pos: Position(x: 0, y: 0),
-    size: Size(width: terminalWidth(), height: terminalHeight()),
-  )
-
-  discard root.measure(terminalRect.size)
-  discard root.arrange(terminalRect)
-
-  var ctx = RenderContext(tb: tb, clipRect: terminalRect)
-  root.render(ctx)
-
-  tb.display()
+macro tuiDebug*(body: untyped): untyped =
+  ## Debug version of tui that renders colored boxes showing widget boundaries
+  ## instead of the actual widget content. Useful for debugging layout issues.
+  generateTuiCode(body, true)

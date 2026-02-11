@@ -1,9 +1,10 @@
-import primitives, constraints, context
+import primitives, constraints, context, event
 
 type
   Widget* = ref object of RootObj
     constraints*: WidgetConstraints
     calculatedRect*: Rect
+    handler*: EventHandler
 
   Container* = ref object of Widget
     children*: seq[Widget]

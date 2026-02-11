@@ -33,6 +33,9 @@ import termui
 import illwill
 import std/os
 
+import widgets/label
+import layout/size_specs
+
 proc exitProc() {.noconv.} =
   illwillDeinit()
   showCursor()
@@ -44,11 +47,14 @@ proc main() =
   hideCursor()
 
   tui:
-    label "Hello, World!":
-      config(width = content(), style = {styleBright}, fgColor = fgGreen)
+    with newLabel("Hello, World!", style = {styleBright}, fgColor = fgGreen)
 
-    label "This text will be truncated with ellipsis":
-      config(width = fixed(20), overflowStrategy = osEllipsis, fgColor = fgYellow)
+    with newLabel(
+      "This text will be truncated with ellipsis",
+      width = fixed(20),
+      overflowStrategy = osEllipsis,
+      fgColor = fgYellow,
+    )
 
   var key = getKey()
   while key != Key.Escape and key != Key.Q:
@@ -101,7 +107,11 @@ nim r examples/simple_label.nim
 
 ## Testing
 
-There are no automated tests yet. Testing a visual library is tricky, and I'm not exactly sure what the best approach would be. Right now I'm relying on the examples to verify everything works. Eventually I want to add tests for the layout logic at least, since that's more deterministic.
+There are some tests for the layout system, but they are not comprehensive. You can run them with:
+
+```
+just test
+```
 
 ## Contributing
 

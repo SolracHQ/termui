@@ -2,6 +2,9 @@ import termui
 import illwill
 import std/os
 
+import widgets/[label, vbox, rect, padding]
+import layout/size_specs
+
 proc exitProc() {.noconv.} =
   illwillDeinit()
   showCursor()
@@ -13,27 +16,17 @@ proc main() =
   hideCursor()
 
   tui:
-    config(alignment = alCenter)
+    self.alignment = alCenter
+    with newLabel("Colombian Flag", style = {styleBright})
 
-    label "Colombian Flag":
-      config(
-        width = content(), height = content(), style = {styleBright}, fgColor = fgWhite
-      )
+    with newPadding(
+      width = fill(), height = flex(), left = 4, right = 4, top = 2, bottom = 2
+    ):
+      with newRect(width = fill(), height = flex(2), bgColor = bgYellow)
+      with newRect(width = fill(), height = flex(1), bgColor = bgBlue)
+      with newRect(width = fill(), height = flex(1), bgColor = bgRed)
 
-    padding:
-      config(width = fill(), height = flex(), left = 4, right = 4, top = 2, bottom = 2)
-
-      rect:
-        config(width = fill(), height = flex(2), bgColor = bgYellow)
-
-      rect:
-        config(width = fill(), height = flex(1), bgColor = bgBlue)
-
-      rect:
-        config(width = fill(), height = flex(1), bgColor = bgRed)
-
-    label "Flex ratio 2:1:1 (Yellow:Blue:Red) - Press ESC or Q to exit":
-      config(width = content(), height = content(), fgColor = fgWhite)
+    with newLabel("Flex ratio 2:1:1 (Yellow:Blue:Red) - Press ESC or Q to exit")
 
   var key = getKey()
   while key != Key.Escape and key != Key.Q:

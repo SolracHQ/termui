@@ -23,24 +23,9 @@ proc newRect*(
   result.constraints.width = width
   result.constraints.height = height
 
-proc config*(
-    rect: var RectWidget,
-    width: SizeSpec,
-    height: SizeSpec,
-    bgColor: BackgroundColor,
-    fgColor: ForegroundColor,
-    fillChar: char,
-) =
-  ## Configure an existing RectWidget instance.
-  rect.constraints.width = width
-  rect.constraints.height = height
-  rect.bgColor = bgColor
-  rect.fgColor = fgColor
-  rect.fillChar = fillChar
-
 method measure*(rect: RectWidget, available: Size): MeasureResult =
   result.min = Size(width: 1, height: 1)
-  result.preferred = Size(width: 10, height: 3)
+  result.preferred = Size(width: 1, height: 1)
 
 method arrange*(rect: RectWidget, rect_area: Rect): ArrangeResult =
   rect.calculatedRect = rect_area

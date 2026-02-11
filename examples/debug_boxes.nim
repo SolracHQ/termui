@@ -1,0 +1,46 @@
+import termui
+import illwill
+import std/os
+
+import widgets/[label, vbox, hbox, rect, padding]
+import layout/size_specs
+
+proc exitProc() {.noconv.} =
+  illwillDeinit()
+  showCursor()
+  quit(0)
+
+proc main() =
+  illwillInit(fullscreen = true)
+  setControlCHook(exitProc)
+  hideCursor()
+
+  tuiDebug:
+    self.alignment = alCenter
+
+    with newLabel("Debug Box Rendering - Press ESC or Q to exit", style = {styleBright})
+
+    with newPadding(
+      width = fill(), height = flex(), left = 4, right = 4, top = 2, bottom = 2
+    ):
+      with newHBox(width = fill(), height = content(), spacing = 2):
+        with newLabel("Box 1", width = fixed(20))
+        with newLabel("Box 2", width = fixed(30))
+        with newLabel("Box 3", width = fixed(15))
+
+      with newVBox(width = fill(), height = flex(), alignment = alCenter):
+        with newRect(width = fill(), height = flex(2), bgColor = bgYellow)
+        with newRect(width = fill(), height = flex(1), bgColor = bgBlue)
+        with newRect(width = fill(), height = flex(1), bgColor = bgRed)
+
+    with newLabel("Colored boxes show widget boundaries and sizes")
+
+  var key = getKey()
+  while key != Key.Escape and key != Key.Q:
+    sleep(20)
+    key = getKey()
+
+  exitProc()
+
+when isMainModule:
+  main()

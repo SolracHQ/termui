@@ -18,19 +18,6 @@ proc newVBox*(
   result.constraints.width = width
   result.constraints.height = height
 
-proc config*(
-    vbox: var VBox,
-    width: SizeSpec,
-    height: SizeSpec,
-    alignment: Alignment,
-    spacing: int,
-) =
-  ## Configure an existing VBox instance.
-  vbox.constraints.width = width
-  vbox.constraints.height = height
-  vbox.alignment = alignment
-  vbox.spacing = spacing
-
 method measure*(vbox: VBox, available: Size): MeasureResult =
   ## Measure the VBox by measuring all children
   var totalMinHeight = 0
@@ -42,10 +29,28 @@ method measure*(vbox: VBox, available: Size): MeasureResult =
 
   for child in vbox.children:
     let childMeasure = child.measure(available)
+
+    # For height: resolve the child's constraint to get its actual desired height
+    # If it's flex, we can't know yet (need remaining space), so use preferred
+    let childHeight =
+      if child.constraints.height.isFlex():
+        childMeasure.preferred.height # Flex size determined during arrange
+      else:
+        child.constraints.height.resolve(
+          available.height, childMeasure.preferred.height
+        )
+
+    # For width: resolve the child's constraint
+    let childWidth =
+      if child.constraints.width.isFlex():
+        childMeasure.preferred.width
+      else:
+        child.constraints.width.resolve(available.width, childMeasure.preferred.width)
+
     totalMinHeight += childMeasure.min.height
-    totalPrefHeight += childMeasure.preferred.height
+    totalPrefHeight += childHeight
     maxMinWidth = max(maxMinWidth, childMeasure.min.width)
-    maxPrefWidth = max(maxPrefWidth, childMeasure.preferred.width)
+    maxPrefWidth = max(maxPrefWidth, childWidth)
 
   result.min = Size(width: maxMinWidth, height: totalMinHeight + totalSpacing)
   result.preferred = Size(width: maxPrefWidth, height: totalPrefHeight + totalSpacing)
