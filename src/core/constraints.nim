@@ -2,6 +2,7 @@
 ##
 ## This module defines size specifications and bounds using case objects
 ## instead of inheritance for better performance and simpler code.
+import std/hashes
 
 type
   FlexFactor* = range[1 .. high(int)] ## Flex factor must be positive
@@ -108,3 +109,22 @@ proc resolveFlex*(spec: SizeSpec, flexSpace: int, totalFlexFactor: int): int =
   result = (flexSpace * spec.factor) div totalFlexFactor
   result = spec.flexMinBound.applyMinBound(result)
   result = spec.flexMaxBound.applyBound(result)
+
+proc hash*(spec: SizeSpec): Hash =
+  ## Compute a hash for a SizeSpec based on its kind and parameters
+  case spec.kind
+  of ssFixed:
+    result = hash(spec.size)
+  of ssContent:
+    result = hash(spec.contentMinBound) !& hash(spec.contentMaxBound)
+  of ssFill:
+    result = hash(spec.fillMinBound) !& hash(spec.fillMaxBound)
+  of ssFlex:
+    result = hash(spec.factor) !& hash(spec.flexMinBound) !& hash(spec.flexMaxBound)
+  of ssPercent:
+    result =
+      hash(spec.percent) !& hash(spec.percentMinBound) !& hash(spec.percentMaxBound)
+
+proc hash*(constraints: WidgetConstraints): Hash =
+  ## Compute a hash for WidgetConstraints based on width and height specs
+  result = constraints.width.hash() !& constraints.height.hash()

@@ -3,6 +3,7 @@ import ../core/[primitives, context, constraints]
 import ../layout
 from std/terminal import Style
 import illwill
+import std/hashes
 
 export Style
 export ForegroundColor, BackgroundColor
@@ -108,3 +109,8 @@ method render*(label: Label, ctx: var RenderContext) =
   ctx.tb.write(rect.pos.x, rect.pos.y, displayText)
 
   ctx.tb.resetAttributes()
+
+method hash*(label: Label): Hash =
+  result =
+    hash(label.randomValue) !& hash(label.text) !& hash(label.overflowStrategy) !&
+    hash(label.style) !& hash(label.fgColor) !& hash(label.bgColor)

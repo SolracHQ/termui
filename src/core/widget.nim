@@ -39,25 +39,32 @@ method render*(w: Widget, ctx: var RenderContext) {.base.} =
 
 method onEvent*(w: Widget, e: Event): bool {.base.} =
   ## Handle an event, returning true if the event was handled.
-  result = false
+  if not w.handler.isNil:
+    return w.handler(e)
+  return false
 
 method onEvent*(w: Container, e: Event): bool =
-  if w.handler.isNil or w.handler(e):
-    return true
+  # Try on childs first
   for child in w.children:
-    if (e.kind == evMouse) and
-        (not child.calculatedRect.contains(Position(x: e.mouse.x, y: e.mouse.y))):
-      continue
+    if (e.kind == evMouse):
+      raise newException(
+        ValueError,
+        "Mouse events are not currently supported due to issues with the underlying library.",
+      )
     if child.onEvent(e):
       return true
+  if not w.handler.isNil and w.handler(e):
+    return true
   return false
 
 method hash*(w: Widget): Hash {.base.} =
   ## Compute a hash for the widget, based on its type and properties.
-  result = hash(w.randomValue)
+  result =
+    hash(w.randomValue) !& hash(w.constraints) !& hash(w.calculatedRect) !&
+    hash(w.handler)
 
 method hash*(c: Container): Hash =
   ## Compute a hash for the container, including its children.
-  result = hash(c.randomValue)
+  result = hash(c.randomValue) !& hash(c.alignment)
   for child in c.children:
     result = result !& child.hash()

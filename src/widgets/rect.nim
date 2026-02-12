@@ -2,6 +2,7 @@ import ../core/widget
 import ../core/[primitives, context, constraints]
 import ../layout
 from std/terminal import Style
+import std/hashes
 import illwill
 
 export Style
@@ -49,3 +50,6 @@ method render*(rect: RectWidget, ctx: var RenderContext) =
       ctx.tb.write(x, y, $rect.fillChar)
 
   ctx.tb.resetAttributes()
+
+method hash*(rect: RectWidget): Hash =
+  result = hash(rect.bgColor) xor hash(rect.fgColor) xor hash(rect.fillChar)

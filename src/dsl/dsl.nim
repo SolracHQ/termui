@@ -1,7 +1,6 @@
 import std/macros
 import illwill
 import ../layout
-import ../debug/boxes
 import ../core/event
 import std/hashes
 import std/os
@@ -90,7 +89,6 @@ proc processOnEventCommand(stmt: NimNode, widgetSym: NimNode): NimNode =
   result = quote:
     `widgetSym`.handler = proc(`param`: Event): bool =
       `body`
-      return false
 
 proc processNode(n: NimNode, parentSym: NimNode): NimNode =
   result = newStmtList()
@@ -99,11 +97,6 @@ proc processNode(n: NimNode, parentSym: NimNode): NimNode =
     # Handle onEvent at current level (attaches to parent)
     if stmt.isOnEventCommand():
       result.add processOnEventCommand(stmt, parentSym)
-      continue
-
-    # Handle onInit/onQuit - error if not at top level
-    if stmt.isOnInitCommand() or stmt.isOnQuitCommand():
-      error("onInit and onQuit are only allowed at the top level of tui block", stmt)
       continue
 
     # Handle regular statements
@@ -151,7 +144,39 @@ proc processNode(n: NimNode, parentSym: NimNode): NimNode =
     # Wrap in block
     result.add newBlockStmt(blockContent)
 
+proc generateWidgetCode(procDef: NimNode): NimNode =
+  ## Transform a widget proc into a proc that returns a Widget
+
+  let body = procDef.body
+  let resultSym = ident("result")
+  let rootSym = genSym(nskVar, "root")
+  let selfSym = ident("self")
+
+  # Remove the widget pragma from the proc
+  var newProcDef = procDef.copyNimTree()
+  newProcDef.pragma = newEmptyNode()
+
+  # Change return type to Widget
+  newProcDef.params[0] = ident("Widget")
+
+  # Create new body
+  var newBody = newStmtList()
+
+  # Initialize result as a VBox
+  newBody.add quote do:
+    var `rootSym` = newVBox(width = content(), height = content())
+    let `selfSym` = `rootSym`
+    `resultSym` = `rootSym`
+
+  # Process the widget tree
+  newBody.add processNode(body, rootSym)
+
+  newProcDef.body = newBody
+  result = newProcDef
+
 proc generateTuiCode(body: NimNode, debug: bool): NimNode =
+  ## Generate the full TUI application code from the body statements
+
   # Extract top-level onInit/onQuit blocks
   var onInitBody = newStmtList()
   var onQuitBody = newStmtList()
@@ -193,7 +218,8 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
       showCursor()
       quit(0)
 
-    illwillInit(fullscreen = true, mouse = true)
+    illwillInit(fullscreen = true, mouse = false)
+      # illwill mouse support is completely broken, TODO: fix it or migrate to another library
     setControlCHook(exitProc)
     hideCursor()
 
@@ -232,7 +258,9 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
           else:
             event = Event(kind: evUpdate, delta: 0.016) # TODO: calculate real delta
         of Key.Mouse:
-          event = Event(kind: evMouse, mouse: getMouse())
+          # event = Event(kind: evMouse, mouse: getMouse())
+          discard
+            # This is currently not supported due to issues with the underlying library. TODO: fix or migrate to another library.
         else:
           event = Event(kind: evKey, key: key)
 
@@ -268,10 +296,58 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
       `onQuitBody`
       `cleanupCode`
 
+macro widget*(procDef: untyped): untyped =
+  ## Transform a proc into a widget builder function.
+  ##
+  ## Usage:
+  ##   proc myButton(text: string, onClick: proc()) {.widget.} =
+  ##     with newBorder():
+  ##       with newLabel(text):
+  ##         onEvent e:
+  ##           if e.kind == evKey and e.key == Key.Enter:
+  ##             onClick()
+  ##
+  ##   # Use it:
+  ##   tui:
+  ##     with myButton("Click me", proc() = echo "clicked!")
+
+  if procDef.kind != nnkProcDef:
+    error("widget pragma can only be applied to proc definitions", procDef)
+
+  result = generateWidgetCode(procDef)
+
 macro tui*(body: untyped): untyped =
-  generateTuiCode(body, false)
+  ## Main TUI macro. Can be used in two ways:
+  ##
+  ## 1. Block syntax (original):
+  ##    tui:
+  ##      with newLabel("Hello")
+  ##      onEvent e:
+  ##        if e.kind == evKey and e.key == Key.Escape:
+  ##          quit()
+  ##
+  ## 2. Proc pragma syntax (new):
+  ##    proc main() {.tui.} =
+  ##      with newLabel("Hello")
+  ##      onEvent e:
+  ##        if e.kind == evKey and e.key == Key.Escape:
+  ##          quit()
+
+  if body.kind == nnkProcDef:
+    result = body
+    result.body = generateTuiCode(result.body, false)
+  elif body.kind == nnkStmtList:
+    result = generateTuiCode(body, false)
+  else:
+    error("tui macro expects a proc definition or a block of statements", body)
 
 macro tuiDebug*(body: untyped): untyped =
   ## Debug version of tui that renders colored boxes showing widget boundaries
   ## instead of the actual widget content. Useful for debugging layout issues.
-  generateTuiCode(body, true)
+  if body.kind == nnkProcDef:
+    result = body
+    result.body = generateTuiCode(result.body, true)
+  elif body.kind == nnkStmtList:
+    result = generateTuiCode(body, true)
+  else:
+    error("tuiDebug macro expects a proc definition or a block of statements", body)

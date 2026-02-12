@@ -4,6 +4,7 @@ type
   EventKind* = enum
     evKey
     evMouse
+      ## illwill mouse events are completely broken, so this is not currently used. TODO: fix or migrate to another library.
     evResize # terminal size changed
     evUpdate # sent each frame
 
@@ -12,7 +13,8 @@ type
     of evKey:
       key*: Key
     of evMouse:
-      mouse*: MouseInfo
+      # mouse*: MouseInfo
+      discard
     of evResize:
       newWidth*: int
       newHeight*: int
