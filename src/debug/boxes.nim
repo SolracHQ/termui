@@ -1,6 +1,6 @@
 import ../core/widget
 import ../core/[primitives, context]
-import illwill
+import term
 
 proc getBoxColor(widget: Widget, depth: int): BackgroundColor =
   ## Get a background color for the widget based on depth
@@ -21,8 +21,10 @@ proc fillBox(ctx: var RenderContext, rect: Rect, color: BackgroundColor) =
 
   ctx.tb.resetAttributes()
 
-proc renderBoxesImpl(widget: Widget, ctx: var RenderContext, depth: int = 0) =
-  ## Internal implementation that tracks depth for coloring
+proc renderBoxes*(widget: Widget, ctx: var RenderContext, depth: int = 0) =
+  ## Render debug boxes for all widgets in the tree
+  ## This fills each widget's calculated rectangle with a solid color
+  ## Different nesting levels get different colors
   let rect = widget.calculatedRect
   let color = getBoxColor(widget, depth)
 
@@ -32,10 +34,4 @@ proc renderBoxesImpl(widget: Widget, ctx: var RenderContext, depth: int = 0) =
   if widget of Container:
     let container = Container(widget)
     for child in container.children:
-      renderBoxesImpl(child, ctx, depth + 1)
-
-proc renderBoxes*(widget: Widget, ctx: var RenderContext) =
-  ## Render debug boxes for all widgets in the tree
-  ## This fills each widget's calculated rectangle with a solid color
-  ## Different nesting levels get different colors
-  renderBoxesImpl(widget, ctx, 0)
+      renderBoxes(child, ctx, depth + 1)

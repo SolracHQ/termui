@@ -1,4 +1,4 @@
-import illwill
+import term
 
 type
   EventKind* = enum

@@ -1,11 +1,11 @@
 import std/macros
-import illwill
+import term
 import ../layout
 import ../core/event
 import std/hashes
 import std/os
 
-export illwill
+export term
 export os
 export event
 
@@ -292,9 +292,9 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
 
         sleep(16)
 
+      `cleanupCode`
       # onQuit runs after loop exits
       `onQuitBody`
-      `cleanupCode`
 
 macro widget*(procDef: untyped): untyped =
   ## Transform a proc into a widget builder function.

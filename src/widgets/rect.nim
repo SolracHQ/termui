@@ -3,7 +3,7 @@ import ../core/[primitives, context, constraints]
 import ../layout
 from std/terminal import Style
 import std/hashes
-import illwill
+import term
 
 export Style
 export ForegroundColor, BackgroundColor

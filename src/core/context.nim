@@ -1,5 +1,5 @@
 import primitives
-import illwill
+import term
 
 type RenderContext* = object
   tb*: TerminalBuffer

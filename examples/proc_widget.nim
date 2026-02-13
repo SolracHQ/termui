@@ -59,7 +59,7 @@ proc main() =
           oranges = 0,
       )
 
-      with button("Quit", selectedButton == 5, () => quit())
+      with button("Quit", selectedButton == 5, quit)
 
     with statusBar("Use TAB/Arrow keys to navigate, ENTER to activate")
 

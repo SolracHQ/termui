@@ -2,7 +2,7 @@ import ../core/widget
 import ../core/[primitives, context, constraints]
 import ../layout
 from std/terminal import Style
-import illwill
+import term
 import std/hashes
 
 export Style

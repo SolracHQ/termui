@@ -10,5 +10,3 @@ srcDir        = "src"
 # Dependencies
 
 requires "nim >= 2.2.6"
-
-requires "illwill >= 0.4.1"
