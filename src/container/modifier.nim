@@ -28,8 +28,8 @@ type
     spacing*: Natural = 0
     alignment*: Alignment = alStart
     # Size
-    width*: SizeSpec = content()
-    height*: SizeSpec = content()
+    constraints*: WidgetConstraints =
+      WidgetConstraints(width: content(), height: content())
 
 # Padding constructors
 proc padding*(
@@ -74,8 +74,8 @@ proc newModifier*(
   result.bgColor = bgColor
   result.spacing = spacing
   result.alignment = alignment
-  result.width = width
-  result.height = height
+  result.constraints.width = width
+  result.constraints.height = height
 
 # Functional modifier methods (mutating)
 proc border*(m: var Modifier, doubleStyle: bool = false) =
@@ -108,14 +108,14 @@ proc background*(m: var Modifier, color: BackgroundColor) =
   m.bgColor = color
 
 proc width*(m: var Modifier, width: SizeSpec) =
-  m.width = width
+  m.constraints.width = width
 
 proc height*(m: var Modifier, height: SizeSpec) =
-  m.height = height
+  m.constraints.height = height
 
 proc size*(m: var Modifier, width: SizeSpec, height: SizeSpec = width) =
-  m.width = width
-  m.height = height
+  m.constraints.width = width
+  m.constraints.height = height
 
 # Helper accessors
 proc borderSize*(m: Modifier): Natural =
@@ -124,4 +124,4 @@ proc borderSize*(m: Modifier): Natural =
 proc hash*(m: Modifier): int =
   return
     m.hasBorder.hash !& m.doubleStyle.hash !& m.padding.hash !& m.hasBackground.hash !&
-    m.bgColor.hash !& m.spacing.hash !& m.alignment.hash !& m.width.hash !& m.height.hash
+    m.bgColor.hash !& m.spacing.hash !& m.alignment.hash !& m.constraints.hash

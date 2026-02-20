@@ -7,7 +7,7 @@ import term
 export Style
 export ForegroundColor, BackgroundColor
 
-type RectWidget* = ref object of Widget ## A simple colored rectangle widget
+type RectWidget* = ref object of SizedWidget ## A simple colored rectangle widget
   bgColor*: BackgroundColor
   fgColor*: ForegroundColor
   fillChar*: char

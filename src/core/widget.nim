@@ -1,16 +1,20 @@
 import primitives, constraints, context
 import event
 import hashes
+import error
 
 type
   EventHandler* = proc(e: Event): bool
 
   Widget* = ref object of RootObj
     ## Base type for all widgets. Contains common properties and methods.
-    constraints*: WidgetConstraints
     calculatedRect*: Rect
     handler*: EventHandler
     randomValue*: string
+
+  SizedWidget* = ref object of Widget
+    ## A widget that has size constraints and can be measured and arranged.
+    constraints*: WidgetConstraints
 
   MeasureResult* = object
     min*: Size
@@ -23,17 +27,29 @@ type
 
 # Base methods - all defined here with the types
 
+method constraints*(w: Widget): var WidgetConstraints {.base.} =
+  ## Return the widget's constraints.
+  raise newException(
+    MethodNotImplementedError, "constraints not implemented for " & $w.type
+  )
+
+method constraints*(w: SizedWidget): var WidgetConstraints =
+  ## Return the sized widget's constraints.
+  result = w.constraints
+
 method measure*(w: Widget, available: Size): MeasureResult {.base.} =
   ## Measure the widget given the available size, returning its minimum and preferred sizes.
-  raise newException(CatchableError, "measure not implemented for " & $w.type)
+  raise
+    newException(MethodNotImplementedError, "measure not implemented for " & $w.type)
 
 method arrange*(w: Widget, rect: Rect): ArrangeResult {.base.} =
   ## Arrange the widget within the given rectangle.
-  raise newException(CatchableError, "arrange not implemented for " & $w.type)
+  raise
+    newException(MethodNotImplementedError, "arrange not implemented for " & $w.type)
 
 method render*(w: Widget, ctx: var RenderContext) {.base.} =
   ## Render the widget into the provided rendering context.
-  raise newException(CatchableError, "render not implemented for " & $w.type)
+  raise newException(MethodNotImplementedError, "render not implemented for " & $w.type)
 
 method onEvent*(w: Widget, e: Event): bool {.base.} =
   ## Handle an event, returning true if the event was handled.

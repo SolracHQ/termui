@@ -1,6 +1,9 @@
 type
   TermUIError* = object of CatchableError ## Base error type for termui library
 
+  MethodNotImplementedError* = object of TermUIError
+    ## Error type for when a method is not implemented for a widget
+
   TermError* = object of TermUIError
     ## Error type for general term errors, such as not being initialized
 

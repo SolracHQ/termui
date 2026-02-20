@@ -14,7 +14,7 @@ type
     osEllipsisMid # Show "..." in middle
     osError # Report as arTooSmall
 
-  Label* = ref object of Widget
+  Label* = ref object of SizedWidget
     text*: string
     overflowStrategy*: OverflowStrategy
     style*: set[Style]

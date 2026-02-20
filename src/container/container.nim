@@ -26,8 +26,9 @@ proc newContainer*(
     direction: Direction = drVertical,
 ): Container =
   result = Container(children: children, modifier: modifier, direction: direction)
-  result.constraints.width = modifier.width
-  result.constraints.height = modifier.height
+
+method constraints*(c: Container): var WidgetConstraints =
+  result = c.modifier.constraints
 
 method measure*(c: Container, available: Size): MeasureResult =
   # Calculate space taken by modifiers

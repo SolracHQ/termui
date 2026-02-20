@@ -6,7 +6,7 @@ import term
 export Style
 export ForegroundColor, BackgroundColor
 
-type TextBox* = ref object of Widget
+type TextBox* = ref object of SizedWidget
   lines*: seq[string]
   style*: set[Style]
   fgColor*: ForegroundColor
