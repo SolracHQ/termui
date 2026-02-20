@@ -1,23 +1,15 @@
 import std/macros
-import term
-import ../layout
-import ../core/event
+import ../term
+import ../core/widget
+import ../core/constraints
+import ../container
 import std/hashes
-import std/os
 
 export term
-export os
-export event
 
 # Helper predicates
-proc isWithCommand(n: NimNode): bool =
-  n.kind == nnkCommand and n.len > 0 and n[0].kind == nnkIdent and $n[0] == "with"
-
-proc isAsInfix(n: NimNode): bool =
-  n.kind == nnkInfix and n.len > 0 and $n[0] == "as"
-
 proc isOnEventCommand(n: NimNode): bool =
-  (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 3 and n[0].kind == nnkIdent and
+  (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 2 and n[0].kind == nnkIdent and
     $n[0] == "onEvent"
 
 proc isOnInitCommand(n: NimNode): bool =
@@ -28,159 +20,83 @@ proc isOnQuitCommand(n: NimNode): bool =
   (n.kind == nnkCall or n.kind == nnkCommand) and n.len >= 2 and n[0].kind == nnkIdent and
     $n[0] == "onQuit"
 
-proc hasNestedWithCommands(body: NimNode): bool =
-  for child in body:
-    if child.isWithCommand():
-      return true
-  return false
+proc isWithCommand(n: NimNode): bool =
+  n.kind == nnkCommand and n.len >= 2 and n[0].kind == nnkIdent and $n[0] == "with"
 
-proc parseWithClause(
-    stmt: NimNode
-): tuple[expr: NimNode, sym: NimNode, body: NimNode, userSym: NimNode] =
-  ## Parse with statment and return components
-  ## "with" expr ( "as" ident )? ( ":" body )?
-  let callOrInfix = stmt[1]
-  result.body =
-    if stmt.len > 2:
-      stmt[2]
-    else:
-      newStmtList()
-
-  if callOrInfix.isAsInfix():
-    # with Widget() as name
-    result.expr = callOrInfix[1]
-    result.userSym = callOrInfix[2]
-    result.sym = genSym(nskLet, $callOrInfix[2])
-  else:
-    # with Widget()
-    result.expr = callOrInfix
-    result.userSym = ident("self")
-    result.sym = genSym(nskLet, "self")
-
-proc parseOnEventCommand(stmt: NimNode): tuple[param: NimNode, body: NimNode] =
-  ## Parse onEvent command - works for both onEvent(e): and onEvent e:
-  result.param = stmt[1]
-  result.body = stmt[2]
-
-proc addWidgetTypeCheck(result: var NimNode, widgetSym, widgetExpr: NimNode) =
-  ## Add a compile-time check to ensure the expression is a Widget
-  let exprStr = widgetExpr.repr
-  let errorNode = quote:
-    when not (`widgetSym` is Widget):
-      {.error: "expected a Widget but got '" & `exprStr` & "'".}
-  result.add errorNode
-
-proc addContainerTypeCheck(result: var NimNode, widgetSym, widgetExpr: NimNode) =
-  ## Add a compile-time check to ensure the widget is a Container if it has children
-  let exprStr = widgetExpr.repr
-  let errorNode = quote:
-    when not (`widgetSym` is Container):
-      {.error: "cannot add children to non-container widget '" & `exprStr` & "'".}
-  result.add errorNode
-
-proc addWidgetToParent(result: var NimNode, parentSym, widgetSym: NimNode) =
-  result.add quote do:
-    `parentSym`.children.add(`widgetSym`)
-
-proc processOnEventCommand(stmt: NimNode, widgetSym: NimNode): NimNode =
-  ## Process onEvent command and attach handler to widget
-  let (param, body) = parseOnEventCommand(stmt)
-
-  result = quote:
-    `widgetSym`.handler = proc(`param`: Event): bool =
-      `body`
-
-proc processNode(n: NimNode, parentSym: NimNode): NimNode =
+macro with*(parent: Widget | Container, body: untyped = nil): untyped =
+  ## Core with macro that processes all statements in body
+  ##
+  ## Handles:
+  ## - Regular statements (executed with `self` = parent in scope)
+  ## - Nested with commands (creates child widgets)
+  ## - onEvent handlers (attached to parent)
+  ##
+  ## Usage:
+  ##   with(myContainer):
+  ##     # self refers to myContainer
+  ##     self.padding = 10
+  ##
+  ##     # Create child widget
+  ##     with newLabel("Hello"):
+  ##       self.color = fgRed
+  ##
+  ##     # Attach event handler to myContainer
+  ##     onEvent e:
+  ##       if e.kind == evKey:
+  ##         echo "Key pressed"
+  let selfSym = ident("self")
   result = newStmtList()
 
-  for stmt in n:
-    # Handle onEvent at current level (attaches to parent)
+  # Inject self = parent
+  result.add quote do:
+    let `selfSym` {.used.} = `parent`
+
+  # Process each statement in body
+  for stmt in body:
     if stmt.isOnEventCommand():
-      result.add processOnEventCommand(stmt, parentSym)
-      continue
-
-    # Handle regular statements
-    if not stmt.isWithCommand():
-      result.add stmt
-      continue
-
-    # Handle with commands
-    let (widgetExpr, widgetSym, body, userSym) = parseWithClause(stmt)
-    let hasChildren = body.hasNestedWithCommands()
-    let randomValue = widgetSym.repr
-
-    # Wrap each node in a block to create a new scope for `self`
-    var blockContent = newStmtList()
-
-    # Create widget with internal symbol
-    blockContent.add quote do:
-      let `widgetSym` = `widgetExpr`
-      `widgetSym`.randomValue = `randomValue`
-
-    # Create user-visible symbol (self or custom name)
-    blockContent.add newLetStmt(userSym, widgetSym)
-
-    # Type checks
-    addWidgetTypeCheck(blockContent, widgetSym, widgetExpr)
-
-    # Add widget to parent (using internal symbol)
-    addWidgetToParent(blockContent, parentSym, widgetSym)
-
-    if hasChildren:
-      addContainerTypeCheck(blockContent, widgetSym, widgetExpr)
-      blockContent.add processNode(body, widgetSym)
-    else:
-      # Process body statements with userSym in scope
-      for child in body:
-        if child.isOnEventCommand():
-          blockContent.add processOnEventCommand(child, widgetSym)
-        elif child.isOnInitCommand() or child.isOnQuitCommand():
-          error(
-            "onInit and onQuit are only allowed at the top level of tui block", child
-          )
+      # onEvent handler - attach to parent
+      let param = stmt[1]
+      let eventBody = stmt[2]
+      result.add quote do:
+        `parent`.handler = proc(`param`: Event): bool =
+          `eventBody`
+    elif stmt.isWithCommand():
+      # Nested with command - create child widget
+      let widgetExpr = stmt[1]
+      let widgetBody =
+        if stmt.len > 2:
+          stmt[2]
         else:
-          blockContent.add child
+          newStmtList()
+      let widgetSym = genSym(nskLet, "widget")
+      let randomValue = widgetSym.repr
 
-    # Wrap in block
-    result.add newBlockStmt(blockContent)
+      # Add type check and child creation in a block
+      result.add quote do:
+        block:
+          let `widgetSym` = `widgetExpr`
+          `widgetSym`.randomValue = `randomValue`
 
-proc generateWidgetCode(procDef: NimNode): NimNode =
-  ## Transform a widget proc into a proc that returns a Widget
+          when not (`parent` is Container):
+            {.error: "cannot add children to non-container widget".}
 
-  let body = procDef.body
-  let resultSym = ident("result")
-  let rootSym = genSym(nskVar, "root")
-  let selfSym = ident("self")
+          # Add to parent
+          `parent`.children.add(`widgetSym`)
 
-  # Remove the widget pragma from the proc
-  var newProcDef = procDef.copyNimTree()
-  newProcDef.pragma = newEmptyNode()
+          # Process nested body
+          with(`widgetSym`, `widgetBody`)
+    else:
+      # Regular statement - just add it (self is in scope)
+      result.add stmt
+  result = newBlockStmt(result)
 
-  # Change return type to Widget
-  newProcDef.params[0] = ident("Widget")
-
-  # Create new body
-  var newBody = newStmtList()
-
-  # Initialize result as a VBox
-  newBody.add quote do:
-    var `rootSym` = newVBox(width = content(), height = content())
-    let `selfSym` = `rootSym`
-    `resultSym` = `rootSym`
-
-  # Process the widget tree
-  newBody.add processNode(body, rootSym)
-
-  newProcDef.body = newBody
-  result = newProcDef
-
-proc generateTuiCode(body: NimNode, debug: bool): NimNode =
+proc generateTuiCode(body: NimNode): NimNode =
   ## Generate the full TUI application code from the body statements
 
-  # Extract top-level onInit/onQuit blocks
+  # Separate statements
   var onInitBody = newStmtList()
   var onQuitBody = newStmtList()
-  var treeBody = newStmtList()
+  var treeCode = newStmtList()
   var hasOnInit = false
   var hasOnQuit = false
 
@@ -196,158 +112,153 @@ proc generateTuiCode(body: NimNode, debug: bool): NimNode =
       hasOnQuit = true
       onQuitBody = stmt[1]
     else:
-      treeBody.add stmt
+      # Everything else goes into treeCode (including onEvent and with)
+      treeCode.add(stmt)
 
-  let rootSym = genSym(nskVar, "root")
-  let runningSym = genSym(nskVar, "running")
-  let quitProc = ident("quit")
+  let rootSym = ident("root")
   let selfSym = ident("self")
-  let treeCode = processNode(treeBody, rootSym)
+  let quitProc = ident("quit")
   let ctxSym = genSym(nskVar, "ctx")
-
-  let renderCall =
-    if debug:
-      newCall(ident("renderBoxes"), rootSym, ctxSym)
-    else:
-      newCall(newDotExpr(rootSym, ident("render")), ctxSym)
-
-  let setupCode = quote:
-    # Setup illwill
-    proc exitProc() {.noconv.} =
-      illwillDeinit()
-      showCursor()
-      quit(0)
-
-    illwillInit(fullscreen = true, mouse = false)
-      # illwill mouse support is completely broken, TODO: fix it or migrate to another library
-    setControlCHook(exitProc)
-    hideCursor()
-
-  let cleanupCode = quote:
-    illwillDeinit()
-    showCursor()
+  let debugModeSym = ident("debugMode")
 
   result = quote:
     block:
-      `setupCode`
+      var `rootSym` =
+        newContainer(modifier = newModifier(width = fill(), height = fill()))
+      let `selfSym` {.used.} = `rootSym`
 
-      # onInit runs once
+      # Debug mode flag - can be toggled at runtime
+      var `debugModeSym` {.inject.} = false
+
+      # onInit runs once before the loop
       `onInitBody`
 
-      var `runningSym` = true
       var prevHash: Hash
-      var prevWidth = terminalWidth()
-      var prevHeight = terminalHeight()
+      var shouldQuit = false
 
       # Inject quit proc into scope
       proc `quitProc`() =
-        `runningSym` = false
+        shouldQuit = true
 
-      while `runningSym`:
-        # Poll event
-        var event: Event
-        let key = getKey()
-
-        case key
-        of Key.None:
-          let (w, h) = (terminalWidth(), terminalHeight())
-          if w != prevWidth or h != prevHeight:
-            event = Event(kind: evResize, newWidth: w, newHeight: h)
-            prevWidth = w
-            prevHeight = h
-          else:
-            event = Event(kind: evUpdate, delta: 0.016) # TODO: calculate real delta
-        of Key.Mouse:
-          # event = Event(kind: evMouse, mouse: getMouse())
-          discard
-            # This is currently not supported due to issues with the underlying library. TODO: fix or migrate to another library.
+      # Main loop using onTerm template
+      onTerm(fullscreen = true, mouse = true, targetFps = 60):
+        if shouldQuit:
+          frExit
         else:
-          event = Event(kind: evKey, key: key)
+          # Dispatch events to current tree
+          for event in events:
+            discard `rootSym`.onEvent(event)
 
-        # Rebuild tree every frame
-        var `rootSym` = newVBox(width = fill(), height = fill())
-        let `selfSym` = `rootSym`
-        `treeCode`
+          # Rebuild tree
+          `rootSym` =
+            newContainer(modifier = newModifier(width = fill(), height = fill()))
 
-        # Dispatch event through tree
-        discard `rootSym`.onEvent(event)
+          # Build widget tree using with macro
+          with(`rootSym`, `treeCode`)
 
-        # Hash and conditional render
-        let currentHash = hash(`rootSym`)
-        if currentHash != prevHash or event.kind == evResize:
-          var tb = newTerminalBuffer(terminalWidth(), terminalHeight())
           let terminalRect = Rect(
-            pos: Position(x: 0, y: 0),
-            size: Size(width: terminalWidth(), height: terminalHeight()),
+            pos: Position(x: 0, y: 0), size: Size(width: tb.width, height: tb.height)
           )
 
           discard `rootSym`.measure(terminalRect.size)
           discard `rootSym`.arrange(terminalRect)
 
-          var `ctxSym` = RenderContext(tb: tb, clipRect: terminalRect)
-          `renderCall`
-          tb.display()
+          # Check if render needed
+          let currentHash =
+            hash(`rootSym`) !& hash(`debugModeSym`) !& hash(terminalRect)
+          if currentHash != prevHash:
+            prevHash = currentHash
 
-          prevHash = currentHash
+            var `ctxSym` = RenderContext(slice: newSlice(tb, terminalRect))
 
-        sleep(16)
+            # Runtime debug mode toggle
+            if `debugModeSym`:
+              renderBoxes(`rootSym`, `ctxSym`)
+            else:
+              `rootSym`.render(`ctxSym`)
 
-      `cleanupCode`
+            frDisplay
+          else:
+            frPreserve
+
       # onQuit runs after loop exits
       `onQuitBody`
 
-macro widget*(procDef: untyped): untyped =
-  ## Transform a proc into a widget builder function.
-  ##
-  ## Usage:
-  ##   proc myButton(text: string, onClick: proc()) {.widget.} =
-  ##     with newBorder():
-  ##       with newLabel(text):
-  ##         onEvent e:
-  ##           if e.kind == evKey and e.key == Key.Enter:
-  ##             onClick()
-  ##
-  ##   # Use it:
-  ##   tui:
-  ##     with myButton("Click me", proc() = echo "clicked!")
-
-  if procDef.kind != nnkProcDef:
-    error("widget pragma can only be applied to proc definitions", procDef)
-
-  result = generateWidgetCode(procDef)
-
 macro tui*(body: untyped): untyped =
-  ## Main TUI macro. Can be used in two ways:
+  ## Main TUI macro
   ##
-  ## 1. Block syntax (original):
+  ## Can be used in two ways:
+  ##
+  ## 1. Block syntax:
   ##    tui:
-  ##      with newLabel("Hello")
+  ##      onInit:
+  ##        echo "Starting app"
+  ##
+  ##      with newLabel("Hello"):
+  ##        self.color = fgRed
+  ##
   ##      onEvent e:
   ##        if e.kind == evKey and e.key == Key.Escape:
   ##          quit()
   ##
-  ## 2. Proc pragma syntax (new):
+  ##      onQuit:
+  ##        echo "Goodbye"
+  ##
+  ## 2. Proc pragma syntax:
   ##    proc main() {.tui.} =
   ##      with newLabel("Hello")
   ##      onEvent e:
   ##        if e.kind == evKey and e.key == Key.Escape:
   ##          quit()
+  ##
+  ## Debug mode:
+  ##   You can toggle debug mode at runtime by setting debugMode = true/false
+  ##   in your code (e.g., in onInit or in an event handler):
+  ##
+  ##    tui:
+  ##      onEvent e:
+  ##        if e.kind == ekKey and e.key.name == "D":
+  ##          debugMode = not debugMode  # Toggle debug mode
 
   if body.kind == nnkProcDef:
-    result = body
-    result.body = generateTuiCode(result.body, false)
+    # Proc definition - transform the body
+    result = body.copyNimTree()
+    result.body = generateTuiCode(result.body)
   elif body.kind == nnkStmtList:
-    result = generateTuiCode(body, false)
+    # Block syntax
+    result = generateTuiCode(body)
   else:
     error("tui macro expects a proc definition or a block of statements", body)
 
-macro tuiDebug*(body: untyped): untyped =
-  ## Debug version of tui that renders colored boxes showing widget boundaries
-  ## instead of the actual widget content. Useful for debugging layout issues.
-  if body.kind == nnkProcDef:
-    result = body
-    result.body = generateTuiCode(result.body, true)
-  elif body.kind == nnkStmtList:
-    result = generateTuiCode(body, true)
-  else:
-    error("tuiDebug macro expects a proc definition or a block of statements", body)
+macro widget*(procDef: untyped): untyped =
+  ## Transform a proc into a widget builder function.
+  ##
+  ## Usage:
+  ##   proc myButton(text: string) {.widget.} =
+  ##     with newLabel(text):
+  ##       self.color = fgRed
+  ##
+  ##     onEvent e:
+  ##       if e.kind == evKey:
+  ##         echo "Key pressed on button"
+
+  if procDef.kind != nnkProcDef:
+    error("widget pragma can only be applied to proc definitions", procDef)
+
+  let body = procDef.body
+  let resultSym = ident("result")
+  let parentSym = genSym(nskLet, "parent")
+
+  # Remove the widget pragma from the proc
+  var newProcDef = procDef.copyNimTree()
+
+  # Change return type to Widget
+  newProcDef.params[0] = ident("Widget")
+
+  # Create new body
+  newProcDef.body = quote:
+    let `parentSym` = newContainer()
+    `resultSym` = `parentSym`
+    with(`parentSym`, `body`)
+
+  result = newProcDef

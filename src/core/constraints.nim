@@ -5,7 +5,7 @@
 import std/hashes
 
 type
-  FlexFactor* = range[1 .. high(int)] ## Flex factor must be positive
+  FlexFactor* = Natural
   PercentValue* = range[0.0 .. 1.0] ## Percentage as a value between 0.0 and 1.0
 
   SizeBoundKind* = enum
@@ -17,7 +17,7 @@ type
     of sbUnbounded:
       discard
     of sbBounded:
-      value*: int
+      value*: Natural
 
   SizeSpecKind* = enum
     ssFixed
@@ -29,7 +29,7 @@ type
   SizeSpec* = object
     case kind*: SizeSpecKind
     of ssFixed:
-      size*: int
+      size*: Natural
     of ssContent:
       contentMinBound*: SizeBound
       contentMaxBound*: SizeBound
@@ -49,16 +49,64 @@ type
     width*: SizeSpec
     height*: SizeSpec
 
-  Alignment* = enum
-    ## Alignment within available space
-    alStart
-    alCenter
-    alEnd
-    alStretch
+# SizeBound constructors
+
+proc unbounded*(): SizeBound =
+  ## Create an unbounded size limit
+  SizeBound(kind: sbUnbounded)
+
+proc bounded*(value: Natural): SizeBound =
+  ## Create a bounded size limit
+  SizeBound(kind: sbBounded, value: value)
+
+# SizeSpec constructors
+
+proc fixed*(size: Natural): SizeSpec =
+  ## Create a fixed size specification
+  SizeSpec(kind: ssFixed, size: size)
+
+proc content*(
+    minBound: SizeBound = unbounded(), maxBound: SizeBound = unbounded()
+): SizeSpec =
+  ## Create a content-sized specification
+  SizeSpec(kind: ssContent, contentMinBound: minBound, contentMaxBound: maxBound)
+
+proc fill*(
+    minBound: SizeBound = unbounded(), maxBound: SizeBound = unbounded()
+): SizeSpec =
+  ## Create a fill size specification
+  SizeSpec(kind: ssFill, fillMinBound: minBound, fillMaxBound: maxBound)
+
+proc flex*(
+    factor: FlexFactor,
+    minBound: SizeBound = unbounded(),
+    maxBound: SizeBound = unbounded(),
+): SizeSpec =
+  ## Create a flexible size specification with a specific factor
+  SizeSpec(kind: ssFlex, factor: factor, flexMinBound: minBound, flexMaxBound: maxBound)
+
+proc flex*(
+    minBound: SizeBound = unbounded(), maxBound: SizeBound = unbounded()
+): SizeSpec =
+  ## Create a flexible size specification with factor=1
+  flex(1.FlexFactor, minBound, maxBound)
+
+proc percent*(
+    value: PercentValue,
+    minBound: SizeBound = unbounded(),
+    maxBound: SizeBound = unbounded(),
+): SizeSpec =
+  ## Create a percentage size specification
+  SizeSpec(
+    kind: ssPercent,
+    percent: value,
+    percentMinBound: minBound,
+    percentMaxBound: maxBound,
+  )
 
 # SizeBound operations
 
-proc applyBound*(bound: SizeBound, value: int): int =
+proc applyBound*(bound: SizeBound, value: Natural): Natural =
   ## Apply a maximum bound constraint to a value
   case bound.kind
   of sbUnbounded:
@@ -66,7 +114,7 @@ proc applyBound*(bound: SizeBound, value: int): int =
   of sbBounded:
     min(value, bound.value)
 
-proc applyMinBound*(bound: SizeBound, value: int): int =
+proc applyMinBound*(bound: SizeBound, value: Natural): Natural =
   ## Apply a minimum bound constraint to a value
   case bound.kind
   of sbUnbounded:
@@ -76,7 +124,7 @@ proc applyMinBound*(bound: SizeBound, value: int): int =
 
 # SizeSpec operations
 
-proc resolve*(spec: SizeSpec, available: int, contentSize: int): int =
+proc resolve*(spec: SizeSpec, available: Natural, contentSize: Natural): Natural =
   ## Resolve a size spec to an actual size given available space and content size
   case spec.kind
   of ssFixed:
@@ -92,7 +140,7 @@ proc resolve*(spec: SizeSpec, available: int, contentSize: int): int =
   of ssFlex:
     result = 0 # Placeholder, actual resolution happens in resolveFlex
   of ssPercent:
-    result = int(float(available) * spec.percent)
+    result = Natural(float(available) * spec.percent)
     result = spec.percentMinBound.applyMinBound(result)
     result = spec.percentMaxBound.applyBound(result)
 
@@ -104,7 +152,9 @@ proc getFlexFactor*(spec: SizeSpec): FlexFactor =
   ## Get the flex factor (only valid for FlexSize)
   spec.factor
 
-proc resolveFlex*(spec: SizeSpec, flexSpace: int, totalFlexFactor: int): int =
+proc resolveFlex*(
+    spec: SizeSpec, flexSpace: Natural, totalFlexFactor: Natural
+): Natural =
   ## Resolve flex size given the available flex space and total flex factor
   result = (flexSpace * spec.factor) div totalFlexFactor
   result = spec.flexMinBound.applyMinBound(result)

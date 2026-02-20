@@ -1,6 +1,5 @@
 import ../core/widget
 import ../core/[primitives, context, constraints]
-import ../layout
 from std/terminal import Style
 import term
 import std/hashes
@@ -67,16 +66,16 @@ method arrange*(label: Label, rect: Rect): ArrangeResult =
   else:
     return arClipped
 
-proc applyStyle(label: Label, tb: var TerminalBuffer) =
+proc applyStyle(label: Label, ts: TerminalSlice) =
   if label.fgColor != fgNone:
-    tb.setForegroundColor(label.fgColor)
+    ts.setForegroundColor(label.fgColor)
   if label.bgColor != bgNone:
-    tb.setBackgroundColor(label.bgColor)
+    ts.setBackgroundColor(label.bgColor)
   if label.style.len > 0:
-    tb.setStyle(label.style)
+    ts.setStyle(label.style)
 
-proc processText(text: string, width: int, strategy: OverflowStrategy): string =
-  if text.len <= width:
+proc processText(text: string, width: Natural, strategy: OverflowStrategy): string =
+  if text.len.Natural <= width:
     return text
 
   case strategy
@@ -90,7 +89,7 @@ proc processText(text: string, width: int, strategy: OverflowStrategy): string =
   of osEllipsisMid:
     if width >= 5:
       let halfWidth = (width - 3) div 2
-      let endStart = text.len - (width - 3 - halfWidth)
+      let endStart = text.len.Natural - (width - 3 - halfWidth)
       text[0 ..< halfWidth] & "..." & text[endStart ..< text.len]
     else:
       text[0 ..< width]
@@ -103,12 +102,14 @@ method render*(label: Label, ctx: var RenderContext) =
   if rect.size.height < 1:
     return
 
-  label.applyStyle(ctx.tb)
+  label.applyStyle(ctx.slice)
 
   let displayText = processText(label.text, rect.size.width, label.overflowStrategy)
-  ctx.tb.write(rect.pos.x, rect.pos.y, displayText)
 
-  ctx.tb.resetAttributes()
+  ctx.slice.setCursorPos(0, 0)
+  ctx.slice.write(displayText)
+
+  ctx.slice.resetAttributes()
 
 method hash*(label: Label): Hash =
   result =

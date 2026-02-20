@@ -1,18 +1,16 @@
-import primitives, constraints, context, event
+import primitives, constraints, context
+import event
 import hashes
 
 type
+  EventHandler* = proc(e: Event): bool
+
   Widget* = ref object of RootObj
     ## Base type for all widgets. Contains common properties and methods.
     constraints*: WidgetConstraints
     calculatedRect*: Rect
     handler*: EventHandler
     randomValue*: string
-
-  Container* = ref object of Widget
-    ## A container widget that can hold child widgets and manage their layout.
-    children*: seq[Widget]
-    alignment*: Alignment
 
   MeasureResult* = object
     min*: Size
@@ -43,28 +41,8 @@ method onEvent*(w: Widget, e: Event): bool {.base.} =
     return w.handler(e)
   return false
 
-method onEvent*(w: Container, e: Event): bool =
-  # Try on childs first
-  for child in w.children:
-    if (e.kind == evMouse):
-      raise newException(
-        ValueError,
-        "Mouse events are not currently supported due to issues with the underlying library.",
-      )
-    if child.onEvent(e):
-      return true
-  if not w.handler.isNil and w.handler(e):
-    return true
-  return false
-
 method hash*(w: Widget): Hash {.base.} =
   ## Compute a hash for the widget, based on its type and properties.
   result =
     hash(w.randomValue) !& hash(w.constraints) !& hash(w.calculatedRect) !&
     hash(w.handler)
-
-method hash*(c: Container): Hash =
-  ## Compute a hash for the container, including its children.
-  result = hash(c.randomValue) !& hash(c.alignment)
-  for child in c.children:
-    result = result !& child.hash()

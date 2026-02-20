@@ -1,6 +1,5 @@
 import ../core/widget
 import ../core/[primitives, context, constraints]
-import ../layout
 from std/terminal import Style
 import std/hashes
 import term
@@ -37,19 +36,17 @@ method arrange*(rect: RectWidget, rect_area: Rect): ArrangeResult =
   return arSuccess
 
 method render*(rect: RectWidget, ctx: var RenderContext) =
-  let area = rect.calculatedRect
+  let area = rect(0, 0, rect.calculatedRect.size.width, rect.calculatedRect.size.height)
 
   if rect.bgColor != bgNone:
-    ctx.tb.setBackgroundColor(rect.bgColor)
+    ctx.slice.setBackgroundColor(rect.bgColor)
   if rect.fgColor != fgNone:
-    ctx.tb.setForegroundColor(rect.fgColor)
+    ctx.slice.setForegroundColor(rect.fgColor)
 
   # Fill the rectangle with the fill character
-  for y in area.pos.y ..< area.pos.y + area.size.height:
-    for x in area.pos.x ..< area.pos.x + area.size.width:
-      ctx.tb.write(x, y, $rect.fillChar)
+  ctx.slice.fill(area, $rect.fillChar)
 
-  ctx.tb.resetAttributes()
+  ctx.slice.resetAttributes()
 
 method hash*(rect: RectWidget): Hash =
   result = hash(rect.bgColor) xor hash(rect.fgColor) xor hash(rect.fillChar)

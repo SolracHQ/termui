@@ -1,3 +1,6 @@
 /tests/*
 !/tests/*.nim
 !/tests/*.nims
+# I use Vagrant to test windows since my windows installation blocks my compiler due Defender
+/.vagrant
+/Vagrantfile

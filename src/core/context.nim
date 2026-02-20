@@ -1,6 +1,10 @@
 import primitives
-import term
+import term/output/types
 
-type RenderContext* = object
-  tb*: TerminalBuffer
-  clipRect*: Rect
+type
+  RenderContext* = object
+    slice*: TerminalSlice
+
+  TerminalSlice* = object
+    tb*: TerminalBuffer
+    rect*: Rect

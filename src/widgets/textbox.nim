@@ -1,6 +1,5 @@
 import ../core/widget
 import ../core/[primitives, context, constraints]
-import ../layout
 from std/terminal import Style
 import term
 
@@ -41,8 +40,9 @@ proc maxLineLength(lines: seq[string]): int =
 
 method measure*(textbox: TextBox, available: Size): MeasureResult =
   result.min = Size(width: 1, height: 1)
-  result.preferred =
-    Size(width: textbox.lines.maxLineLength(), height: textbox.lines.len)
+  result.preferred = Size(
+    width: textbox.lines.maxLineLength().Natural, height: textbox.lines.len.Natural
+  )
 
 method arrange*(textbox: TextBox, rect: Rect): ArrangeResult =
   textbox.calculatedRect = rect
@@ -50,8 +50,8 @@ method arrange*(textbox: TextBox, rect: Rect): ArrangeResult =
   if rect.size.width < 1 or rect.size.height < 1:
     return arClipped
 
-  let maxWidth = textbox.lines.maxLineLength()
-  let totalHeight = textbox.lines.len
+  let maxWidth = textbox.lines.maxLineLength().Natural
+  let totalHeight = textbox.lines.len.Natural
 
   # Check if all content fits
   if maxWidth <= rect.size.width and totalHeight <= rect.size.height:
@@ -59,32 +59,32 @@ method arrange*(textbox: TextBox, rect: Rect): ArrangeResult =
   else:
     return arClipped
 
-proc applyStyle(textbox: TextBox, tb: var TerminalBuffer) =
+proc applyStyle(textbox: TextBox, ts: TerminalSlice) =
   if textbox.fgColor != fgNone:
-    tb.setForegroundColor(textbox.fgColor)
+    ts.setForegroundColor(textbox.fgColor)
   if textbox.bgColor != bgNone:
-    tb.setBackgroundColor(textbox.bgColor)
+    ts.setBackgroundColor(textbox.bgColor)
   if textbox.style.len > 0:
-    tb.setStyle(textbox.style)
+    ts.setStyle(textbox.style)
 
 method render*(textbox: TextBox, ctx: var RenderContext) =
   let rect = textbox.calculatedRect
 
-  textbox.applyStyle(ctx.tb)
+  textbox.applyStyle(ctx.slice)
 
-  var y = rect.pos.y
+  var y = 0
   for line in textbox.lines:
-    if y >= rect.pos.y + rect.size.height:
+    if y >= rect.size.height:
       break
 
     # Clip line to available width
     let displayText =
-      if line.len > rect.size.width:
+      if line.len.Natural > rect.size.width:
         line[0 ..< rect.size.width]
       else:
         line
 
-    ctx.tb.write(rect.pos.x, y, displayText)
+    ctx.slice.write(0, y, displayText)
     inc y
 
-  ctx.tb.resetAttributes()
+  ctx.slice.resetAttributes()

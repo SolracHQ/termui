@@ -24,7 +24,7 @@ proc main() =
     with newLabel("Colored boxes show widget boundaries and sizes")
 
     onEvent e:
-      if e.kind == evKey and (e.key == Key.Escape or e.key == Key.Q):
+      if e.kind == ekKey and (e.key.name == "Escape" or e.key.name == "Q"):
         quit()
 
 when isMainModule:
