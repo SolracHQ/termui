@@ -14,6 +14,7 @@ type
   Direction* = enum
     drHorizontal
     drVertical
+    drStack
 
   Container* = ref object of Widget
     children*: seq[Widget]
@@ -30,205 +31,220 @@ proc newContainer*(
 method constraints*(c: Container): var WidgetConstraints =
   result = c.modifier.constraints
 
-method measure*(c: Container, available: Size): MeasureResult =
-  # Calculate space taken by modifiers
-  let borderSpace = c.modifier.borderSize
-  let paddingH = c.modifier.padding.horizontal
-  let paddingV = c.modifier.padding.vertical
+# ---------------------------------------------------------------------------
+# Measure helpers
+# ---------------------------------------------------------------------------
 
-  var availableSize = Size(
+proc innerSize(available: Size, modifier: Modifier): Size =
+  let borderSpace = modifier.borderSize
+  let paddingH = modifier.padding.horizontal
+  let paddingV = modifier.padding.vertical
+  Size(
     width: available.width - borderSpace - paddingH,
     height: available.height - borderSpace - paddingV,
   )
 
-  # Measure children based on direction
+proc outerSize(inner: Size, modifier: Modifier): Size =
+  let borderSpace = modifier.borderSize
+  let paddingH = modifier.padding.horizontal
+  let paddingV = modifier.padding.vertical
+  Size(
+    width: inner.width + borderSpace + paddingH,
+    height: inner.height + borderSpace + paddingV,
+  )
+
+proc measureLinear(c: Container, availableInner: Size): MeasureResult =
+  ## Measure for drHorizontal and drVertical.
   var totalMin, totalPref, maxMin, maxPref: Natural
   let totalSpacing = max(0, c.children.len - 1).Natural * c.modifier.spacing
 
   for child in c.children:
-    let childMeasure = child.measure(availableSize)
-
+    let m = child.measure(availableInner)
     if c.direction == drVertical:
-      totalMin += childMeasure.min.height
-      totalPref += childMeasure.preferred.height
-      maxMin = max(maxMin, childMeasure.min.width)
-      maxPref = max(maxPref, childMeasure.preferred.width)
+      totalMin += m.min.height
+      totalPref += m.preferred.height
+      maxMin = max(maxMin, m.min.width)
+      maxPref = max(maxPref, m.preferred.width)
     else:
-      totalMin += childMeasure.min.width
-      totalPref += childMeasure.preferred.width
-      maxMin = max(maxMin, childMeasure.min.height)
-      maxPref = max(maxPref, childMeasure.preferred.height)
+      totalMin += m.min.width
+      totalPref += m.preferred.width
+      maxMin = max(maxMin, m.min.height)
+      maxPref = max(maxPref, m.preferred.height)
 
   if c.direction == drVertical:
-    result.min = Size(
-      width: maxMin + paddingH + borderSpace,
-      height: totalMin + totalSpacing + paddingV + borderSpace,
-    )
-    result.preferred = Size(
-      width: maxPref + paddingH + borderSpace,
-      height: totalPref + totalSpacing + paddingV + borderSpace,
-    )
+    result.min = Size(width: maxMin, height: totalMin + totalSpacing)
+    result.preferred = Size(width: maxPref, height: totalPref + totalSpacing)
   else:
-    result.min = Size(
-      width: totalMin + totalSpacing + paddingH + borderSpace,
-      height: maxMin + paddingV + borderSpace,
-    )
-    result.preferred = Size(
-      width: totalPref + totalSpacing + paddingH + borderSpace,
-      height: maxPref + paddingV + borderSpace,
-    )
+    result.min = Size(width: totalMin + totalSpacing, height: maxMin)
+    result.preferred = Size(width: totalPref + totalSpacing, height: maxPref)
 
-method arrange*(c: Container, rect: Rect): ArrangeResult =
-  c.calculatedRect = rect
+proc measureStack(c: Container, availableInner: Size): MeasureResult =
+  ## Measure for drStack: each child gets full space, result is the max of all.
+  for child in c.children:
+    let m = child.measure(availableInner)
+    result.min.width = max(result.min.width, m.min.width)
+    result.min.height = max(result.min.height, m.min.height)
+    result.preferred.width = max(result.preferred.width, m.preferred.width)
+    result.preferred.height = max(result.preferred.height, m.preferred.height)
 
-  if c.children.len == 0:
-    return arSuccess
+method measure*(c: Container, available: Size): MeasureResult =
+  let availableInner = innerSize(available, c.modifier)
 
-  result = arSuccess
+  let inner =
+    if c.direction == drStack:
+      c.measureStack(availableInner)
+    else:
+      c.measureLinear(availableInner)
 
-  # Apply modifiers to get inner rect
-  var innerRect = rect
+  result.min = outerSize(inner.min, c.modifier)
+  result.preferred = outerSize(inner.preferred, c.modifier)
 
-  if c.modifier.hasBorder:
-    innerRect.pos.x += 1
-    innerRect.pos.y += 1
-    innerRect.size.width = innerRect.size.width - 2
-    innerRect.size.height = innerRect.size.height - 2
+# ---------------------------------------------------------------------------
+# Arrange helpers
+# ---------------------------------------------------------------------------
 
-  innerRect.pos.x += c.modifier.padding.left
-  innerRect.pos.y += c.modifier.padding.top
-  innerRect.size.width = innerRect.size.width - c.modifier.padding.horizontal
-  innerRect.size.height = innerRect.size.height - c.modifier.padding.vertical
+proc calcInnerRect(rect: Rect, modifier: Modifier): Rect =
+  var r = rect
+  if modifier.hasBorder:
+    r.pos.x += 1
+    r.pos.y += 1
+    r.size.width -= 2
+    r.size.height -= 2
+  r.pos.x += modifier.padding.left
+  r.pos.y += modifier.padding.top
+  r.size.width -= modifier.padding.horizontal
+  r.size.height -= modifier.padding.vertical
+  r
 
-  # First pass: measure children and separate flex from non-flex
-  var childWidths = newSeq[Natural](c.children.len)
-  var childHeights = newSeq[Natural](c.children.len)
-  var flexChildren: seq[int] = @[]
-  var totalFlexFactor = 0.Natural
-  var usedSpace = 0.Natural
-
+proc resolveChildSizes(
+    c: Container,
+    innerRect: Rect,
+    childWidths: var seq[Natural],
+    childHeights: var seq[Natural],
+    flexChildren: var seq[int],
+    totalFlexFactor: var Natural,
+    usedSpace: var Natural,
+) =
+  ## First pass: resolve fixed/content sizes and collect flex children.
   let totalSpacing = max(0, c.children.len - 1).Natural * c.modifier.spacing
   usedSpace += totalSpacing
 
   for i, child in c.children:
-    let childMeasure = child.measure(innerRect.size)
+    let m = child.measure(innerRect.size)
 
     if c.direction == drVertical:
-      # Vertical layout - flex affects height
       if child.constraints.height.isFlex():
         flexChildren.add(i)
         totalFlexFactor += child.constraints.height.getFlexFactor()
         childHeights[i] = 0
       else:
-        childHeights[i] = child.constraints.height.resolve(
-          innerRect.size.height, childMeasure.preferred.height
-        )
+        childHeights[i] =
+          child.constraints.height.resolve(innerRect.size.height, m.preferred.height)
         usedSpace += childHeights[i]
 
-      # Width resolution
       childWidths[i] =
         if child.constraints.width.isFlex():
-          childMeasure.preferred.width
+          m.preferred.width
         else:
-          child.constraints.width.resolve(
-            innerRect.size.width, childMeasure.preferred.width
-          )
+          child.constraints.width.resolve(innerRect.size.width, m.preferred.width)
     else:
-      # Horizontal layout - flex affects width
       if child.constraints.width.isFlex():
         flexChildren.add(i)
         totalFlexFactor += child.constraints.width.getFlexFactor()
         childWidths[i] = 0
       else:
-        childWidths[i] = child.constraints.width.resolve(
-          innerRect.size.width, childMeasure.preferred.width
-        )
+        childWidths[i] =
+          child.constraints.width.resolve(innerRect.size.width, m.preferred.width)
         usedSpace += childWidths[i]
 
-      # Height resolution
       childHeights[i] =
         if child.constraints.height.isFlex():
-          childMeasure.preferred.height
+          m.preferred.height
         else:
-          child.constraints.height.resolve(
-            innerRect.size.height, childMeasure.preferred.height
-          )
+          child.constraints.height.resolve(innerRect.size.height, m.preferred.height)
 
-  # Second pass: distribute remaining space to flex children
-  let remainingSpace =
+proc distributeFlexSpace(
+    c: Container,
+    innerRect: Rect,
+    childWidths: var seq[Natural],
+    childHeights: var seq[Natural],
+    flexChildren: seq[int],
+    totalFlexFactor: Natural,
+    usedSpace: Natural,
+) =
+  ## Second pass: distribute remaining space among flex children.
+  if flexChildren.len == 0 or totalFlexFactor == 0:
+    return
+
+  let remaining =
     if c.direction == drVertical:
       innerRect.size.height - usedSpace
     else:
       innerRect.size.width - usedSpace
 
-  if flexChildren.len > 0 and totalFlexFactor > 0:
-    for childIdx in flexChildren:
-      let child = c.children[childIdx]
+  for idx in flexChildren:
+    let child = c.children[idx]
+    if c.direction == drVertical:
+      childHeights[idx] =
+        child.constraints.height.resolveFlex(remaining, totalFlexFactor)
+    else:
+      childWidths[idx] = child.constraints.width.resolveFlex(remaining, totalFlexFactor)
 
-      if c.direction == drVertical:
-        childHeights[childIdx] =
-          child.constraints.height.resolveFlex(remainingSpace, totalFlexFactor)
-      else:
-        childWidths[childIdx] =
-          child.constraints.width.resolveFlex(remainingSpace, totalFlexFactor)
+proc alignedPos(
+    primary, cross, crossSize, childCross: Natural, alignment: Alignment
+): Natural =
+  ## Compute aligned position on the cross axis.
+  case alignment
+  of alStart, alStretch:
+    cross
+  of alCenter:
+    cross + (crossSize - childCross) div 2
+  of alEnd:
+    cross + crossSize - childCross
 
-  # Third pass: arrange children
+proc placeChildren(
+    c: Container, innerRect: Rect, childWidths: seq[Natural], childHeights: seq[Natural]
+): ArrangeResult =
+  ## Third pass: position children and recurse into arrange.
+  result = arSuccess
   var currentX = innerRect.pos.x
   var currentY = innerRect.pos.y
 
   for i, child in c.children:
-    let childWidth = childWidths[i]
-    let childHeight = childHeights[i]
+    let w = childWidths[i]
+    let h = childHeights[i]
 
-    var childX, childY: Natural
+    let (childX, childY) =
+      if c.direction == drVertical:
+        (
+          alignedPos(
+            currentY, innerRect.pos.x, innerRect.size.width, w, c.modifier.alignment
+          ),
+          currentY,
+        )
+      else:
+        (
+          currentX,
+          alignedPos(
+            currentX, innerRect.pos.y, innerRect.size.height, h, c.modifier.alignment
+          ),
+        )
 
-    if c.direction == drVertical:
-      # Vertical: Y advances, X depends on alignment
-      childY = currentY
-      childX =
-        case c.modifier.alignment
-        of alStart:
-          innerRect.pos.x
-        of alCenter:
-          innerRect.pos.x + (innerRect.size.width - childWidth) div 2
-        of alEnd:
-          innerRect.pos.x + innerRect.size.width - childWidth
-        of alStretch:
-          innerRect.pos.x
-    else:
-      # Horizontal: X advances, Y depends on alignment
-      childX = currentX
-      childY =
-        case c.modifier.alignment
-        of alStart:
-          innerRect.pos.y
-        of alCenter:
-          innerRect.pos.y + (innerRect.size.height - childHeight) div 2
-        of alEnd:
-          innerRect.pos.y + innerRect.size.height - childHeight
-        of alStretch:
-          innerRect.pos.y
-
-    let childRect = Rect(
-      pos: Position(x: childX, y: childY),
-      size: Size(width: childWidth, height: childHeight),
+    let childResult = child.arrange(
+      Rect(pos: Position(x: childX, y: childY), size: Size(width: w, height: h))
     )
 
-    let childResult = child.arrange(childRect)
-
-    # Track if any child was clipped or too small
     if childResult == arClipped:
       result = arClipped
     elif childResult == arTooSmall and result != arClipped:
       result = arTooSmall
 
-    # Advance position
     if c.direction == drVertical:
-      currentY += childHeight + c.modifier.spacing
+      currentY += h + c.modifier.spacing
     else:
-      currentX += childWidth + c.modifier.spacing
+      currentX += w + c.modifier.spacing
 
-  # Check if we exceeded bounds
+  # Check if we overflowed
   if c.direction == drVertical:
     if currentY - c.modifier.spacing > innerRect.pos.y + innerRect.size.height:
       if result == arSuccess:
@@ -238,20 +254,56 @@ method arrange*(c: Container, rect: Rect): ArrangeResult =
       if result == arSuccess:
         result = arClipped
 
+proc arrangeStack(c: Container, innerRect: Rect): ArrangeResult =
+  ## Arrange for drStack: every child gets the full inner rect.
+  result = arSuccess
+  for child in c.children:
+    let childResult = child.arrange(innerRect)
+    if childResult == arClipped:
+      result = arClipped
+    elif childResult == arTooSmall and result != arClipped:
+      result = arTooSmall
+
+method arrange*(c: Container, rect: Rect): ArrangeResult =
+  c.calculatedRect = rect
+
+  if c.children.len == 0:
+    return arSuccess
+
+  let innerRect = calcInnerRect(rect, c.modifier)
+
+  if c.direction == drStack:
+    return c.arrangeStack(innerRect)
+
+  var childWidths = newSeq[Natural](c.children.len)
+  var childHeights = newSeq[Natural](c.children.len)
+  var flexChildren: seq[int] = @[]
+  var totalFlexFactor = 0.Natural
+  var usedSpace = 0.Natural
+
+  c.resolveChildSizes(
+    innerRect, childWidths, childHeights, flexChildren, totalFlexFactor, usedSpace
+  )
+  c.distributeFlexSpace(
+    innerRect, childWidths, childHeights, flexChildren, totalFlexFactor, usedSpace
+  )
+  c.placeChildren(innerRect, childWidths, childHeights)
+
+# ---------------------------------------------------------------------------
+# Render
+# ---------------------------------------------------------------------------
+
 method render*(c: Container, ctx: var RenderContext) =
-  # Render border if present
   if c.modifier.hasBorder:
     let w = ctx.slice.width()
     let h = ctx.slice.height()
     ctx.slice.drawRect(0, 0, w - 1, h - 1, c.modifier.doubleStyle)
 
-  # Render background if present
   if c.modifier.hasBackground:
     let w = ctx.slice.width()
     let h = ctx.slice.height()
     let prev = ctx.slice.getBackgroundColor()
     ctx.slice.setBackgroundColor(c.modifier.bgColor)
-
     let fillRect = rect(
       if c.modifier.hasBorder: 1 else: 0,
       if c.modifier.hasBorder: 1 else: 0,
@@ -261,21 +313,21 @@ method render*(c: Container, ctx: var RenderContext) =
     ctx.slice.fill(fillRect, " ")
     ctx.slice.setBackgroundColor(prev)
 
-  # Render children with their own slices
   for child in c.children:
-    # Create slice directly from absolute rect using the root buffer
     let childSlice = newSlice(ctx.slice.tb, child.calculatedRect)
     var childCtx = RenderContext(slice: childSlice)
     child.render(childCtx)
 
+# ---------------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------------
+
 method onEvent*(w: Container, e: Event): bool =
-  # Try on childs first
   for child in w.children:
     let pos = e.pos
     if pos.isSome:
       if not child.calculatedRect.contains(pos.get):
         continue
-
     if child.onEvent(e):
       return true
   if not w.handler.isNil and w.handler(e):
@@ -283,4 +335,4 @@ method onEvent*(w: Container, e: Event): bool =
   return false
 
 method hash*(c: Container): int =
-  return hash(c.children) !& hash(c.modifier) !& hash(c.direction)
+  hash(c.children) !& hash(c.modifier) !& hash(c.direction)

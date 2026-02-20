@@ -23,6 +23,58 @@ proc isOnQuitCommand(n: NimNode): bool =
 proc isWithCommand(n: NimNode): bool =
   n.kind == nnkCommand and n.len >= 2 and n[0].kind == nnkIdent and $n[0] == "with"
 
+proc transformStmt(parent: NimNode, stmt: NimNode): NimNode
+
+proc transformBody(parent: NimNode, body: NimNode): NimNode =
+  result = newStmtList()
+  for stmt in body:
+    result.add transformStmt(parent, stmt)
+
+proc transformStmt(parent: NimNode, stmt: NimNode): NimNode =
+  if stmt.isOnEventCommand():
+    let param = stmt[1]
+    let eventBody = stmt[2]
+    result = quote:
+      `parent`.handler = proc(`param`: Event): bool =
+        `eventBody`
+  elif stmt.isWithCommand():
+    let widgetExpr = stmt[1]
+    let widgetBody =
+      if stmt.len > 2:
+        stmt[2]
+      else:
+        newStmtList()
+    let widgetSym = genSym(nskLet, "widget")
+    let randomValue = widgetSym.repr
+    result = quote:
+      block:
+        let `widgetSym` = `widgetExpr`
+        `widgetSym`.randomValue = `randomValue`
+        when not (`parent` is Container):
+          {.error: "cannot add children to non-container widget".}
+        `parent`.children.add(`widgetSym`)
+        with(`widgetSym`, `widgetBody`)
+  elif stmt.kind in {nnkIfStmt, nnkWhenStmt}:
+    # Recurse into branches
+    result = stmt.copyNimTree()
+    for i in 0 ..< result.len:
+      let branch = result[i]
+      # branch is nnkElifBranch, nnkElifExpr, or nnkElse
+      let lastIdx = branch.len - 1
+      branch[lastIdx] = transformBody(parent, branch[lastIdx])
+  elif stmt.kind == nnkCaseStmt:
+    result = stmt.copyNimTree()
+    for i in 1 ..< result.len: # skip the selector expression
+      let branch = result[i]
+      let lastIdx = branch.len - 1
+      branch[lastIdx] = transformBody(parent, branch[lastIdx])
+  elif stmt.kind in {nnkBlockStmt, nnkStmtList}:
+    result = stmt.copyNimTree()
+    let lastIdx = result.len - 1
+    result[lastIdx] = transformBody(parent, result[lastIdx])
+  else:
+    result = stmt
+
 macro with*(parent: Widget | Container, body: untyped = nil): untyped =
   ## Core with macro that processes all statements in body
   ##
@@ -46,48 +98,12 @@ macro with*(parent: Widget | Container, body: untyped = nil): untyped =
   ##         echo "Key pressed"
   let selfSym = ident("self")
   result = newStmtList()
-
-  # Inject self = parent
   result.add quote do:
     let `selfSym` {.used.} = `parent`
 
-  # Process each statement in body
   for stmt in body:
-    if stmt.isOnEventCommand():
-      # onEvent handler - attach to parent
-      let param = stmt[1]
-      let eventBody = stmt[2]
-      result.add quote do:
-        `parent`.handler = proc(`param`: Event): bool =
-          `eventBody`
-    elif stmt.isWithCommand():
-      # Nested with command - create child widget
-      let widgetExpr = stmt[1]
-      let widgetBody =
-        if stmt.len > 2:
-          stmt[2]
-        else:
-          newStmtList()
-      let widgetSym = genSym(nskLet, "widget")
-      let randomValue = widgetSym.repr
+    result.add transformStmt(parent, stmt)
 
-      # Add type check and child creation in a block
-      result.add quote do:
-        block:
-          let `widgetSym` = `widgetExpr`
-          `widgetSym`.randomValue = `randomValue`
-
-          when not (`parent` is Container):
-            {.error: "cannot add children to non-container widget".}
-
-          # Add to parent
-          `parent`.children.add(`widgetSym`)
-
-          # Process nested body
-          with(`widgetSym`, `widgetBody`)
-    else:
-      # Regular statement - just add it (self is in scope)
-      result.add stmt
   result = newBlockStmt(result)
 
 proc generateTuiCode(body: NimNode): NimNode =
