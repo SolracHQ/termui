@@ -194,13 +194,21 @@ proc alignedPos(
     primary, cross, crossSize, childCross: Natural, alignment: Alignment
 ): Natural =
   ## Compute aligned position on the cross axis.
+  ## When the child is larger than the container we clamp to the origin so
+  ## Natural subtraction never underflows into a RangeDefect.
   case alignment
   of alStart, alStretch:
     cross
   of alCenter:
-    cross + (crossSize - childCross) div 2
+    if childCross >= crossSize:
+      cross
+    else:
+      cross + (crossSize - childCross) div 2
   of alEnd:
-    cross + crossSize - childCross
+    if childCross >= crossSize:
+      cross
+    else:
+      cross + crossSize - childCross
 
 proc placeChildren(
     c: Container, innerRect: Rect, childWidths: seq[Natural], childHeights: seq[Natural]
